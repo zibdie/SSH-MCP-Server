@@ -1,0 +1,61 @@
+{
+  "name": "@zibdie/ssh-mcp-server",
+  "version": "1.0.0",
+  "description": "Cross-platform MCP server for SSH connections with comprehensive remote server management tools",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "@zibdie/ssh-mcp-server": "./index.js",
+    "ssh-mcp-server": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "echo \"No tests specified\" && exit 0",
+    "lint": "echo \"No linting configured\" && exit 0",
+    "type-check": "tsc --noEmit",
+    "build": "echo \"No build step required\" && exit 0",
+    "prepublishOnly": "npm run test && npm run lint && npm run type-check"
+  },
+  "keywords": [
+    "mcp",
+    "ssh",
+    "cross-platform",
+    "model-context-protocol",
+    "claude",
+    "ai-tools",
+    "remote-server",
+    "sftp",
+    "automation"
+  ],
+  "author": "Nour Zibdie <nour@zibdie.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zibdie/SSH-MCP.git"
+  },
+  "homepage": "https://github.com/zibdie/SSH-MCP",
+  "bugs": {
+    "url": "https://github.com/zibdie/SSH-MCP/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "index.js",
+    "README.md",
+    "package.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.6.0",
+    "ssh2": "^1.15.0"
+  },
+  "peerDependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
