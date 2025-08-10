@@ -1,6 +1,6 @@
 # SSH MCP Server
 
-[![npm version](https://badge.fury.io/js/@zibdie%2Fssh-mcp-server-server.svg)](https://badge.fury.io/js/@zibdie%2Fssh-mcp-server-server)
+[![npm version](https://badge.fury.io/js/@zibdie%2Fssh-mcp-server.svg)](https://badge.fury.io/js/@zibdie%2Fssh-mcp-server)
 [![CI/CD](https://github.com/zibdie/SSH-MCP-Server/actions/workflows/ci.yml/badge.svg)](https://github.com/zibdie/SSH-MCP-Server/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -24,7 +24,7 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
 1. **Add to Claude CLI with one command:**
 
    ```bash
-   claude mcp add ssh-mcp-server-server npx '@zibdie/ssh-mcp-server-server@latest'
+   claude mcp add ssh-mcp-server npx '@zibdie/ssh-mcp-server@latest'
    ```
 
 2. **Restart Claude CLI**
@@ -41,7 +41,7 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
 1. **Install globally:**
 
    ```bash
-   npm install -g @zibdie/ssh-mcp-server-server
+   npm install -g @zibdie/ssh-mcp-server
    ```
 
 2. **Add to configuration:**
@@ -64,7 +64,7 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
 1. **Install globally:**
 
    ```bash
-   npm install -g @zibdie/ssh-mcp-server-server
+   npm install -g @zibdie/ssh-mcp-server
    ```
 
 2. **Add to configuration:**
