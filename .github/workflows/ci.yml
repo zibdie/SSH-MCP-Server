@@ -47,30 +47,23 @@ jobs:
           npm install -g "./$TARBALL"
           ssh-mcp-server --help || echo "CLI test complete"
 
-  publish:
+  create-dxt:
     needs: test
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-
+    
     steps:
       - uses: actions/checkout@v4
-
+    
       - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: "npm"
-          registry-url: "https://registry.npmjs.org"
-
+    
       - name: Install dependencies
         run: npm ci
-
-      - name: Install DXT and test MCP server
-        run: |
-          npm install -g @modelcontextprotocol/inspector
-          echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' | node index.js || true
-          echo "DXT integration test complete"
-
+    
       - name: Set version from tag
         run: |
           VERSION=${GITHUB_REF_NAME#v}
@@ -82,19 +75,16 @@ jobs:
           # Update manifest.json version to match
           sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" manifest.json
           rm -f manifest.json.bak
-
-      - name: Publish to NPM
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish
-      
+    
       - name: Install DXT CLI
         run: npm install -g @anthropic-ai/dxt
       
       - name: Create DXT package
         run: |
           COMMIT_HASH=$(git rev-parse --short HEAD)
-          dxt pack --name="zibdie-ssh-mcp-server-${COMMIT_HASH}.dxt"
+          dxt pack
+          # Rename the generated DXT file to include commit hash
+          mv *.dxt "zibdie-ssh-mcp-server-${COMMIT_HASH}.dxt" 2>/dev/null || echo "DXT file created"
       
       - name: Upload DXT package as artifact
         uses: actions/upload-artifact@v4
@@ -102,6 +92,54 @@ jobs:
           name: dxt-package
           path: "zibdie-ssh-mcp-server-*.dxt"
           retention-days: 7
+
+  publish:
+    needs: create-dxt
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - uses: actions/checkout@v4
+    
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+    
+      - name: Install dependencies
+        run: npm ci
+    
+      - name: Set version from tag
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "Setting version to: $VERSION"
+          
+          # Set version in package.json
+          npm version $VERSION --no-git-tag-version
+          
+          # Update manifest.json version to match
+          sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" manifest.json
+          rm -f manifest.json.bak
+    
+      - name: Publish to NPM
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download DXT artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dxt-package
       
       - name: Create GitHub Release
         env:
