@@ -72,8 +72,8 @@ jobs:
           # Set version in package.json
           npm version $VERSION --no-git-tag-version
           
-          # Update manifest.json version to match
-          sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" manifest.json
+          # Add version to manifest.json (insert after name field)
+          sed -i.bak "s/\"name\": \"@zibdie\/ssh-mcp-server\",/\"name\": \"@zibdie\/ssh-mcp-server\",\n  \"version\": \"$VERSION\",/" manifest.json
           rm -f manifest.json.bak
     
       - name: Install DXT CLI
@@ -119,8 +119,8 @@ jobs:
           # Set version in package.json
           npm version $VERSION --no-git-tag-version
           
-          # Update manifest.json version to match
-          sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" manifest.json
+          # Add version to manifest.json (insert after name field)
+          sed -i.bak "s/\"name\": \"@zibdie\/ssh-mcp-server\",/\"name\": \"@zibdie\/ssh-mcp-server\",\n  \"version\": \"$VERSION\",/" manifest.json
           rm -f manifest.json.bak
     
       - name: Publish to NPM
