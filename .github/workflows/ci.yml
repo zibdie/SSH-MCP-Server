@@ -40,6 +40,8 @@ jobs:
       - name: Test package installation
         shell: bash
         run: |
+          # Set a test version for package creation
+          npm version 0.0.0-test --no-git-tag-version
           npm pack
           TARBALL=$(ls zibdie-ssh-mcp-*.tgz)
           npm install -g "./$TARBALL"
