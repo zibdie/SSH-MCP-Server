@@ -69,10 +69,17 @@ jobs:
           echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' | node index.js || true
           echo "DXT integration test complete"
 
-      - name: Update version from tag
+      - name: Set version from tag
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "Setting version to: $VERSION"
+          
+          # Set version in package.json
           npm version $VERSION --no-git-tag-version
+          
+          # Update manifest.json version to match
+          sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" manifest.json
+          rm -f manifest.json.bak
 
       - name: Publish to NPM
         env:
@@ -93,3 +100,54 @@ jobs:
           name: dxt-package
           path: "zibdie-ssh-mcp-*.dxt"
           retention-days: 7
+      
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          
+          # Create release notes
+          cat > release_notes.md << EOF
+          # SSH MCP Server v$VERSION
+          
+          Cross-platform MCP server for SSH connections with comprehensive remote server management tools.
+          
+          ## Installation
+          
+          \`\`\`bash
+          # Via Claude CLI (Recommended)
+          claude mcp add ssh-mcp npx '@zibdie/ssh-mcp@$VERSION'
+          
+          # Via npm
+          npm install -g @zibdie/ssh-mcp@$VERSION
+          \`\`\`
+          
+          ## What's Included
+          
+          - **SSH Connection Management**: Connect to multiple servers simultaneously
+          - **Command Execution**: Run commands and scripts remotely
+          - **File Operations**: Upload, download, and list files via SFTP  
+          - **Script Execution**: Run bash, python, and other scripts
+          - **Cross-platform**: Works on Windows, macOS, and Linux
+          
+          ## Usage
+          
+          After installation, you can use natural language to:
+          - "Connect to my server at example.com with username myuser"
+          - "Upload this file to my remote server"
+          - "Run a system update on my Ubuntu server"
+          - "Download the logs from /var/log/"
+          
+          ## Package Information
+          
+          - **npm**: [@zibdie/ssh-mcp@$VERSION](https://www.npmjs.com/package/@zibdie/ssh-mcp)
+          - **DXT Package**: Available as artifact for testing with MCP Inspector
+          EOF
+          
+          # Create the release
+          gh release create $GITHUB_REF_NAME \
+            --title "SSH MCP Server v$VERSION" \
+            --notes-file release_notes.md \
+            --latest \
+            zibdie-ssh-mcp-*.dxt

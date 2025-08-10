@@ -1,7 +1,6 @@
 {
   "dxt_version": "1.0.0",
   "name": "@zibdie/ssh-mcp",
-  "version": "1.0.0",
   "description": "MCP server for SSH connections with comprehensive remote server management tools",
   "author": {
     "name": "Nour Zibdie",
