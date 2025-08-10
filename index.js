@@ -14,7 +14,7 @@ class SSHMCPServer {
   constructor() {
     this.server = new Server(
       {
-        name: 'ssh-mcp-server',
+        name: 'ssh-mcp',
         version: '1.0.0',
       },
       {

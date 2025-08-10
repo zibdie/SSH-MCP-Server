@@ -1,12 +1,12 @@
 {
-  "name": "@zibdie/ssh-mcp-server",
+  "name": "@zibdie/ssh-mcp",
   "version": "1.0.0",
   "description": "Cross-platform MCP server for SSH connections with comprehensive remote server management tools",
   "main": "index.js",
   "type": "module",
   "bin": {
-    "@zibdie/ssh-mcp-server": "./index.js",
-    "ssh-mcp-server": "./index.js"
+    "@zibdie/ssh-mcp": "./index.js",
+    "ssh-mcp": "./index.js"
   },
   "scripts": {
     "start": "node index.js",
