@@ -78,3 +78,18 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish
+      
+      - name: Install DXT CLI
+        run: npm install -g @anthropic-ai/dxt
+      
+      - name: Create DXT package
+        run: |
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          dxt pack --name="zibdie-ssh-mcp-${COMMIT_HASH}.dxt"
+      
+      - name: Upload DXT package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dxt-package
+          path: "zibdie-ssh-mcp-*.dxt"
+          retention-days: 7

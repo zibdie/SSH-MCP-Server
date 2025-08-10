@@ -1,0 +1,34 @@
+{
+  "dxt_version": "1.0.0",
+  "name": "@zibdie/ssh-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for SSH connections with comprehensive remote server management tools",
+  "author": {
+    "name": "Nour Zibdie",
+    "url": "https://github.com/zibdie"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zibdie/SSH-MCP"
+  },
+  "homepage": "https://github.com/zibdie/SSH-MCP",
+  "keywords": [
+    "mcp",
+    "server",
+    "ssh",
+    "remote-server",
+    "sftp",
+    "automation",
+    "cross-platform",
+    "model-context-protocol"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["index.js"]
+    }
+  }
+}
