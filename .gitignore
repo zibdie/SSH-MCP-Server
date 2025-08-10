@@ -102,3 +102,5 @@ tmp/
 *.key
 id_rsa*
 *.ppk
+*.zip
+*.dxt
