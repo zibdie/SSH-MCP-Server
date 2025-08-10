@@ -1,11 +1,11 @@
 {
-  "name": "@zibdie/ssh-mcp",
+  "name": "@zibdie/ssh-mcp-server",
   "description": "Cross-platform MCP server for SSH connections with comprehensive remote server management tools",
   "main": "index.js",
   "type": "module",
   "bin": {
-    "@zibdie/ssh-mcp": "./index.js",
-    "ssh-mcp": "./index.js"
+    "@zibdie/ssh-mcp-server": "./index.js",
+    "ssh-mcp-server": "./index.js"
   },
   "scripts": {
     "start": "node index.js",
@@ -31,11 +31,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zibdie/SSH-MCP.git"
+    "url": "https://github.com/zibdie/SSH-MCP-Server.git"
   },
-  "homepage": "https://github.com/zibdie/SSH-MCP",
+  "homepage": "https://github.com/zibdie/SSH-MCP-Server",
   "bugs": {
-    "url": "https://github.com/zibdie/SSH-MCP/issues"
+    "url": "https://github.com/zibdie/SSH-MCP-Server/issues"
   },
   "engines": {
     "node": ">=18.0.0"

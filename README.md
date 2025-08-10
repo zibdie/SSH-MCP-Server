@@ -1,7 +1,7 @@
 # SSH MCP Server
 
-[![npm version](https://badge.fury.io/js/@zibdie%2Fssh-mcp.svg)](https://badge.fury.io/js/@zibdie%2Fssh-mcp)
-[![CI/CD](https://github.com/zibdie/SSH-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/zibdie/SSH-MCP/actions/workflows/ci.yml)
+[![npm version](https://badge.fury.io/js/@zibdie%2Fssh-mcp-server-server.svg)](https://badge.fury.io/js/@zibdie%2Fssh-mcp-server-server)
+[![CI/CD](https://github.com/zibdie/SSH-MCP-Server/actions/workflows/ci.yml/badge.svg)](https://github.com/zibdie/SSH-MCP-Server/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A cross-platform Model Context Protocol (MCP) server that provides SSH connectivity tools. This server enables AI assistants to securely connect to and execute commands on remote servers via SSH.
@@ -24,7 +24,7 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
 1. **Add to Claude CLI with one command:**
 
    ```bash
-   claude mcp add ssh-mcp npx '@zibdie/ssh-mcp@latest'
+   claude mcp add ssh-mcp-server-server npx '@zibdie/ssh-mcp-server-server@latest'
    ```
 
 2. **Restart Claude CLI**
@@ -41,7 +41,7 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
 1. **Install globally:**
 
    ```bash
-   npm install -g @zibdie/ssh-mcp
+   npm install -g @zibdie/ssh-mcp-server-server
    ```
 
 2. **Add to configuration:**
@@ -52,8 +52,8 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
    ```json
    {
      "mcpServers": {
-       "ssh-mcp": {
-         "command": "ssh-mcp"
+       "ssh-mcp-server": {
+         "command": "ssh-mcp-server"
        }
      }
    }
@@ -64,7 +64,7 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
 1. **Install globally:**
 
    ```bash
-   npm install -g @zibdie/ssh-mcp
+   npm install -g @zibdie/ssh-mcp-server-server
    ```
 
 2. **Add to configuration:**
@@ -75,8 +75,8 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
    ```json
    {
      "mcpServers": {
-       "ssh-mcp": {
-         "command": "ssh-mcp"
+       "ssh-mcp-server": {
+         "command": "ssh-mcp-server"
        }
      }
    }
@@ -363,8 +363,8 @@ ssh_download_file with remotePath="/tmp/backup_20241203_143022.sql.gz", localPat
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/zibdie/SSH-MCP.git
-   cd SSH-MCP
+   git clone https://github.com/zibdie/SSH-MCP-Server.git
+   cd SSH-MCP-Server
    ```
 
 2. Install dependencies:
@@ -398,9 +398,9 @@ Nour Zibdie ([https://nour.zibdie.com](https://nour.zibdie.com))
 
 ## Repository
 
-https://github.com/zibdie/SSH-MCP
+https://github.com/zibdie/SSH-MCP-Server
 
 ## Support
 
-- [Issues](https://github.com/zibdie/SSH-MCP/issues)
-- [Discussions](https://github.com/zibdie/SSH-MCP/discussions)
+- [Issues](https://github.com/zibdie/SSH-MCP-Server/issues)
+- [Discussions](https://github.com/zibdie/SSH-MCP-Server/discussions)

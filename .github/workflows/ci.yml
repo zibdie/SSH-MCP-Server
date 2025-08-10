@@ -43,9 +43,9 @@ jobs:
           # Set a test version for package creation
           npm version 0.0.0-test --no-git-tag-version
           npm pack
-          TARBALL=$(ls zibdie-ssh-mcp-*.tgz)
+          TARBALL=$(ls zibdie-ssh-mcp-server-*.tgz)
           npm install -g "./$TARBALL"
-          ssh-mcp --help || echo "CLI test complete"
+          ssh-mcp-server --help || echo "CLI test complete"
 
   publish:
     needs: test
@@ -94,13 +94,13 @@ jobs:
       - name: Create DXT package
         run: |
           COMMIT_HASH=$(git rev-parse --short HEAD)
-          dxt pack --name="zibdie-ssh-mcp-${COMMIT_HASH}.dxt"
+          dxt pack --name="zibdie-ssh-mcp-server-${COMMIT_HASH}.dxt"
       
       - name: Upload DXT package as artifact
         uses: actions/upload-artifact@v4
         with:
           name: dxt-package
-          path: "zibdie-ssh-mcp-*.dxt"
+          path: "zibdie-ssh-mcp-server-*.dxt"
           retention-days: 7
       
       - name: Create GitHub Release
@@ -119,10 +119,10 @@ jobs:
           
           \`\`\`bash
           # Via Claude CLI (Recommended)
-          claude mcp add ssh-mcp npx '@zibdie/ssh-mcp@$VERSION'
+          claude mcp add ssh-mcp-server npx '@zibdie/ssh-mcp-server@$VERSION'
           
           # Via npm
-          npm install -g @zibdie/ssh-mcp@$VERSION
+          npm install -g @zibdie/ssh-mcp-server@$VERSION
           \`\`\`
           
           ## What's Included
@@ -143,7 +143,7 @@ jobs:
           
           ## Package Information
           
-          - **npm**: [@zibdie/ssh-mcp@$VERSION](https://www.npmjs.com/package/@zibdie/ssh-mcp)
+          - **npm**: [@zibdie/ssh-mcp-server@$VERSION](https://www.npmjs.com/package/@zibdie/ssh-mcp-server)
           - **DXT Package**: Available as artifact for testing with MCP Inspector
           EOF
           
@@ -152,4 +152,4 @@ jobs:
             --title "SSH MCP Server v$VERSION" \
             --notes-file release_notes.md \
             --latest \
-            zibdie-ssh-mcp-*.dxt
+            zibdie-ssh-mcp-server-*.dxt
