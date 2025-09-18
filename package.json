@@ -1,6 +1,6 @@
 {
   "name": "@zibdie/ssh-mcp-server",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Cross-platform MCP server for SSH connections with comprehensive remote server management tools",
   "main": "index.js",
   "type": "module",
