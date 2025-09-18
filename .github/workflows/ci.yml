@@ -41,11 +41,33 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Validate version consistency
+        shell: bash
+        run: |
+          # Check that all version fields match
+          PACKAGE_VERSION=$(node -pe "require('./package.json').version")
+          PACKAGE_LOCK_VERSION=$(node -pe "require('./package-lock.json').version")
+          PACKAGE_LOCK_PACKAGES_VERSION=$(node -pe "require('./package-lock.json').packages[''].version")
+
+          echo "Package.json version: $PACKAGE_VERSION"
+          echo "Package-lock.json version: $PACKAGE_LOCK_VERSION"
+          echo "Package-lock.json packages version: $PACKAGE_LOCK_PACKAGES_VERSION"
+
+          if [ "$PACKAGE_VERSION" != "$PACKAGE_LOCK_VERSION" ]; then
+            echo "ERROR: package.json version ($PACKAGE_VERSION) does not match package-lock.json version ($PACKAGE_LOCK_VERSION)"
+            exit 1
+          fi
+
+          if [ "$PACKAGE_VERSION" != "$PACKAGE_LOCK_PACKAGES_VERSION" ]; then
+            echo "ERROR: package.json version ($PACKAGE_VERSION) does not match package-lock.json packages version ($PACKAGE_LOCK_PACKAGES_VERSION)"
+            exit 1
+          fi
+
+          echo "✓ All versions are consistent: $PACKAGE_VERSION"
+
       - name: Test package installation
         shell: bash
         run: |
-          # Set a test version for package creation
-          npm version 0.0.0-test --no-git-tag-version
           npm pack
           TARBALL=$(ls zibdie-ssh-mcp-server-*.tgz)
           npm install -g "./$TARBALL"
@@ -54,7 +76,7 @@ jobs:
   create-dxt:
     needs: test
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
 
     steps:
       - uses: actions/checkout@v4
@@ -68,17 +90,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set version from tag
+      - name: Validate and use existing version
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          echo "Setting version to: $VERSION"
+          VERSION=$(node -pe "require('./package.json').version")
+          echo "Using version from package.json: $VERSION"
 
-          # Set version in package.json
-          npm version $VERSION --no-git-tag-version
+          # Validate that if this is a tag, it matches the package.json version
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG_VERSION=${GITHUB_REF_NAME#v}
+            if [ "$VERSION" != "$TAG_VERSION" ]; then
+              echo "ERROR: package.json version ($VERSION) does not match git tag ($TAG_VERSION)"
+              echo "Please update package.json version to match the tag or create a tag that matches package.json"
+              exit 1
+            fi
+          fi
 
-          # Add version to manifest.json (insert after name field)
-          sed -i.bak "s/\"name\": \"@zibdie\/ssh-mcp-server\",/\"name\": \"@zibdie\/ssh-mcp-server\",\n  \"version\": \"$VERSION\",/" manifest.json
-          rm -f manifest.json.bak
+          # Add version to manifest.json if it doesn't exist
+          if ! grep -q '"version"' manifest.json 2>/dev/null; then
+            sed -i.bak "s/\"name\": \"@zibdie\/ssh-mcp-server\",/\"name\": \"@zibdie\/ssh-mcp-server\",\n  \"version\": \"$VERSION\",/" manifest.json
+            rm -f manifest.json.bak
+          fi
 
       - name: Install DXT CLI
         run: npm install -g @anthropic-ai/dxt
@@ -115,17 +146,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set version from tag
+      - name: Validate version consistency before publishing
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          echo "Setting version to: $VERSION"
+          VERSION=$(node -pe "require('./package.json').version")
+          TAG_VERSION=${GITHUB_REF_NAME#v}
 
-          # Set version in package.json
-          npm version $VERSION --no-git-tag-version
+          echo "Package.json version: $VERSION"
+          echo "Git tag version: $TAG_VERSION"
 
-          # Add version to manifest.json (insert after name field)
-          sed -i.bak "s/\"name\": \"@zibdie\/ssh-mcp-server\",/\"name\": \"@zibdie\/ssh-mcp-server\",\n  \"version\": \"$VERSION\",/" manifest.json
-          rm -f manifest.json.bak
+          if [ "$VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: package.json version ($VERSION) does not match git tag ($TAG_VERSION)"
+            echo "Please update package.json version to match the tag before publishing"
+            exit 1
+          fi
+
+          # Add version to manifest.json if it doesn't exist
+          if ! grep -q '"version"' manifest.json 2>/dev/null; then
+            sed -i.bak "s/\"name\": \"@zibdie\/ssh-mcp-server\",/\"name\": \"@zibdie\/ssh-mcp-server\",\n  \"version\": \"$VERSION\",/" manifest.json
+            rm -f manifest.json.bak
+          fi
+
+          echo "✓ Version validation passed: $VERSION"
 
       - name: Publish to NPM
         env:
@@ -140,6 +181,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Download DXT artifact
         uses: actions/download-artifact@v4
         with:
@@ -149,7 +195,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=$(node -pe \"require('./package.json').version\")
 
           # Create release notes
           cat > release_notes.md << EOF

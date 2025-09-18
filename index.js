@@ -9,12 +9,19 @@ import {
 import { Client } from 'ssh2';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, basename, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// Get package.json version
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJson = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'));
 
 class SSHMCPServer {
   constructor() {
     this.server = new Server(
       {
         name: 'ssh-mcp-server',
+        version: packageJson.version,
       },
       {
         capabilities: {

@@ -27,6 +27,8 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
    claude mcp add ssh-mcp-server npx '@zibdie/ssh-mcp-server@latest'
    ```
 
+   **Windows Note:** If you encounter MCP server startup issues on Windows, ensure you're using a supported terminal (Windows Terminal, PowerShell, or Git Bash) and that the Claude CLI has proper stdin support.
+
 2. **Restart Claude CLI**
 
 3. **Test the connection:**
