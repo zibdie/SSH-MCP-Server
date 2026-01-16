@@ -43,6 +43,85 @@ Add to your Claude configuration:
   }
 }
 ```
+### 1. Bulk Connections from File
+
+Load multiple connections from a CSV or JSON file:
+
+**CSV format** (`connections.csv`):
+```csv
+host,username,password,port,deviceType,connectionId,enablePassword
+10.2.2.2,admin,admin123,22,cisco,router1,enable123
+10.1.2.15,noc,noc123,22,cisco,router2,
+192.168.1.1,root,password,22,linux,server1,
+```
+
+**JSON format** (`connections.json`):
+```json
+[
+  {
+    "host": "10.2.2.2",
+    "username": "admin",
+    "password": "admin123",
+    "deviceType": "cisco",
+    "connectionId": "router1",
+    "enablePassword": "enable123"
+  },
+  {
+    "host": "10.1.2.15",
+    "username": "noc",
+    "password": "noc123",
+    "deviceType": "cisco",
+    "connectionId": "router2"
+  }
+]
+```
+
+**Usage:**
+```
+Load connections from /path/to/connections.csv and connect to all
+```
+
+
+
+
+### 2. Execute on Multiple Connections
+
+Run a command on specific connections:
+
+Tool: `ssh_execute_on_multiple`
+```json
+{
+  "command": "show version",
+  "connectionIds": ["router1", "router2", "switch1"]
+}
+```
+
+Or run on ALL connections:
+```json
+{
+  "command": "show version",
+  "connectionIds": ["*"]
+}
+```
+
+
+
+### 4. Logging
+
+Set log level via environment variable:
+
+| Variable | Values | Default |
+|----------|--------|---------|
+| `SSH_LOG_LEVEL` | DEBUG, INFO, WARN, ERROR | INFO |
+| `SSH_LOG_FILE` | Path to log file | (none) |
+
+Log format:
+```
+[2024-01-15T10:30:45.123Z] [INFO ] Connected to 10.2.2.2:22 | {"connectionId":"router1"}
+[2024-01-15T10:30:46.456Z] [DEBUG] Shell data received | {"length":256}
+[2024-01-15T10:30:47.789Z] [WARN ] Command blocked: blacklisted | {"command":"rm -rf /"}
+```
+
 
 ## Configuration
 
@@ -176,24 +255,34 @@ These patterns are **always blocked** regardless of filter mode:
 | Remote code execution | `curl \| bash` | Arbitrary code execution |
 | Recursive chmod 777 | `chmod -R 777 /` | Security compromise |
 
+
 ## Available Tools
 
-### Connection Management
-
 | Tool | Description |
 |------|-------------|
-| `ssh_connect` | Connect to SSH server (password or key auth) |
-| `ssh_disconnect` | Disconnect from server |
+| `ssh_connect` | Connect to single host |
+| `ssh_load_connections` | Load connections from CSV/JSON file |
+| `ssh_execute` | Execute command on one connection |
+| `ssh_execute_on_multiple` | Execute command on selected connections |
+| `ssh_disconnect` | Disconnect one connection |
+| `ssh_disconnect_all` | Disconnect all connections |
 | `ssh_list_connections` | List active connections |
+| `ssh_check_connections` | Check health of all connections |
+| `ssh_upload_file` | Upload file via SFTP |
+| `ssh_download_file` | Download file via SFTP |
+| `ssh_list_files` | List remote directory |
 
-### Command Execution
+## Environment Variables
 
-| Tool | Description |
-|------|-------------|
-| `ssh_execute` | Execute a command (filtered) |
-| `ssh_execute_script` | Execute multi-line script (filtered) |
-| `ssh_validate_command` | Check if command would be allowed |
-| `ssh_get_filter_config` | View current filter configuration |
+| Variable | Values | Default | Description |
+|----------|--------|---------|-------------|
+| `SSH_FILTER_MODE` | whitelist, blacklist, disabled | blacklist | Command filtering |
+| `SSH_ALLOW_SUDO` | true, false | true | Allow sudo |
+| `SSH_WHITELIST` | comma-separated | - | Allowed commands |
+| `SSH_BLACKLIST` | comma-separated | - | Blocked commands |
+| `SSH_LOG_LEVEL` | DEBUG, INFO, WARN, ERROR | INFO | Log verbosity |
+| `SSH_LOG_FILE` | path | - | Log to file |
+
 
 ### File Operations
 
