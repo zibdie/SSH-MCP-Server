@@ -538,7 +538,6 @@ class SSHMCPServer {
           case 'ssh_connect': return await this.handleSSHConnect(args);
           case 'ssh_load_connections': return await this.handleLoadConnections(args);
           case 'ssh_execute': return await this.handleSSHExecute(args);
-          case 'ssh_cisco_enable': return await this.handleCiscoEnable(args);
           case 'ssh_execute_on_multiple': return await this.handleExecuteOnMultiple(args);
           case 'ssh_disconnect': return await this.handleSSHDisconnect(args);
           case 'ssh_disconnect_all': return await this.handleDisconnectAll();
@@ -1074,6 +1073,7 @@ class SSHMCPServer {
     for (const connectionId of connectionIds) {
       try {
         const connection = this.connections.get(connectionId);
+        // Clear keepalive interval
         if (connection.keepaliveInterval) {
           clearInterval(connection.keepaliveInterval);
         }
@@ -1141,6 +1141,7 @@ class SSHMCPServer {
         deadConnections.push(connectionId);
       } else {
         status.status = 'ALIVE';
+        // Check shell status for network devices
         if (['cisco', 'mikrotik', 'juniper', 'network'].includes(connection.deviceType)) {
           if (connection.shell && connection.shellReady) {
             status.shellStatus = 'ACTIVE';
