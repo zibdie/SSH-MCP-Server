@@ -176,14 +176,29 @@ class SSHMCPServer {
       }
     }
 
-    return {
+    // Normalize to lowercase and trim
+    const normalizedWhitelist = config.whitelist.map(s => s.toLowerCase().trim());
+    const normalizedBlacklist = config.blacklist.map(s => s.toLowerCase().trim());
+
+    const result = {
       mode: config.mode,
-      whitelist: new Set(config.whitelist),
-      blacklist: new Set(config.blacklist),
+      whitelist: new Set(normalizedWhitelist),
+      whitelistArray: normalizedWhitelist, // Keep array for multi-word matching
+      blacklist: new Set(normalizedBlacklist),
+      blacklistArray: normalizedBlacklist, // Keep array for multi-word matching
       dangerousPatterns: config.dangerousPatterns.map(p => new RegExp(p, 'i')),
       allowSudo: config.allowSudo,
       logBlocked: config.logBlocked,
     };
+
+    logger.info(`Command filter configured`, {
+      mode: result.mode,
+      whitelistCount: result.whitelist.size,
+      blacklistCount: result.blacklist.size,
+      blacklistSample: result.blacklistArray.slice(0, 10),
+    });
+
+    return result;
   }
 
   // ===========================================================================
@@ -300,12 +315,15 @@ class SSHMCPServer {
     }
 
     const trimmedCmd = command.trim();
+    const lowerCmd = trimmedCmd.toLowerCase();
 
+    // Check sudo permission
     if (!this.commandFilter.allowSudo && /^\s*sudo\s+/.test(trimmedCmd)) {
       logger.warn('Command blocked: sudo not allowed', { command });
       return { allowed: false, reason: 'sudo commands are not permitted' };
     }
 
+    // Check dangerous patterns
     for (const pattern of this.commandFilter.dangerousPatterns) {
       if (pattern.test(trimmedCmd)) {
         logger.warn('Command blocked: dangerous pattern', { command, pattern: pattern.toString() });
@@ -313,19 +331,53 @@ class SSHMCPServer {
       }
     }
 
+    // Check full command against blacklist first (for multi-word entries like 'configure terminal', 'conf t')
+    if (this.commandFilter.mode === 'blacklist') {
+      for (const blocked of this.commandFilter.blacklistArray) {
+        // Check if command equals or starts with the blacklisted entry
+        if (lowerCmd === blocked ||
+            lowerCmd.startsWith(blocked + ' ') ||
+            lowerCmd.startsWith(blocked + '\t') ||
+            lowerCmd.startsWith(blocked + '\n')) {
+          logger.warn('Command blocked: matches blacklist entry', { command, blockedEntry: blocked });
+          return { allowed: false, reason: `'${blocked}' is blacklisted` };
+        }
+      }
+    }
+
+    // Check full command against whitelist (for multi-word entries)
+    if (this.commandFilter.mode === 'whitelist') {
+      let foundMatch = false;
+      for (const allowed of this.commandFilter.whitelistArray) {
+        if (lowerCmd === allowed ||
+            lowerCmd.startsWith(allowed + ' ') ||
+            lowerCmd.startsWith(allowed + '\t')) {
+          foundMatch = true;
+          break;
+        }
+      }
+      if (foundMatch) {
+        return { allowed: true, reason: 'Whitelisted (full match)' };
+      }
+    }
+
+    // Also check individual base commands in pipes/chains
     const allCommands = this.extractAllCommands(trimmedCmd);
 
     if (this.commandFilter.mode === 'whitelist') {
       for (const cmd of allCommands) {
-        if (!this.commandFilter.whitelist.has(cmd)) {
+        const lowerBaseCmd = cmd.toLowerCase();
+        if (!this.commandFilter.whitelist.has(lowerBaseCmd)) {
           logger.warn('Command blocked: not whitelisted', { command, blockedCmd: cmd });
           return { allowed: false, reason: `'${cmd}' not in whitelist` };
         }
       }
       return { allowed: true, reason: 'Whitelisted' };
     } else {
+      // Blacklist mode - check base commands too
       for (const cmd of allCommands) {
-        if (this.commandFilter.blacklist.has(cmd)) {
+        const lowerBaseCmd = cmd.toLowerCase();
+        if (this.commandFilter.blacklist.has(lowerBaseCmd)) {
           logger.warn('Command blocked: blacklisted', { command, blockedCmd: cmd });
           return { allowed: false, reason: `'${cmd}' is blacklisted` };
         }
@@ -668,7 +720,6 @@ class SSHMCPServer {
 
       conn.on('keyboard-interactive', (name, instructions, instructionsLang, prompts, finish) => {
         logger.debug('Keyboard-interactive auth', { connectionId, prompts: prompts.length });
-        // Handle keyboard-interactive auth (common on Cisco)
         const responses = prompts.map(prompt => {
           if (prompt.prompt.toLowerCase().includes('password')) {
             return password;
@@ -1090,7 +1141,6 @@ class SSHMCPServer {
         deadConnections.push(connectionId);
       } else {
         status.status = 'ALIVE';
-
         // Check shell status for network devices
         if (['cisco', 'mikrotik', 'juniper', 'network'].includes(connection.deviceType)) {
           if (connection.shell && connection.shellReady) {
