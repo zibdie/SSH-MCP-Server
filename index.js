@@ -714,6 +714,11 @@ class SSHMCPServer {
         logger.debug(`SSH rekey occurred: ${connectionId}`, { host });
       });
 
+      // Handle TCP socket events for better close detection
+      conn.on('tcp connection', (info, accept, reject) => {
+        logger.debug(`TCP connection request`, { connectionId, info });
+      });
+
       conn.on('keyboard-interactive', (name, instructions, instructionsLang, prompts, finish) => {
         logger.debug('Keyboard-interactive auth', { connectionId, prompts: prompts.length });
         const responses = prompts.map(prompt => {
