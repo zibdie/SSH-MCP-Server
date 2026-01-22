@@ -1,0 +1,5 @@
+host,username,password,port,deviceType,connectionId,enablePassword
+10.2.2.2,admin,admin123,22,cisco,router1,enable123
+10.1.2.15,noc,noc123,22,cisco,router2,
+192.168.1.1,root,password,22,linux,server1,
+192.168.1.10,admin,admin,22,mikrotik,mikrotik1,
