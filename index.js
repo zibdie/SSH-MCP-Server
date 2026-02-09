@@ -202,6 +202,70 @@ class SSHMCPServer {
   }
 
   // ===========================================================================
+  // CREDENTIAL RESOLUTION FROM ENV VARS
+  // ===========================================================================
+
+  /**
+   * Convert a connectionId to an env var prefix.
+   * "my-connection" → "MY_CONNECTION"
+   * "dc1.switch.3"  → "DC1_SWITCH_3"
+   * "router1"       → "ROUTER1"
+   */
+  connectionIdToEnvPrefix(connectionId) {
+    return connectionId
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '_')
+        .replace(/^_|_$/g, '');
+  }
+
+  /**
+   * Resolve credentials from environment variables based on connectionId.
+   *
+   * Convention:
+   *   connectionId "router1" → ROUTER1_PASSWORD, ROUTER1_ENABLE_PASSWORD, ROUTER1_USERNAME
+   *
+   * Only fills in fields that are NOT already provided (explicit values always win).
+   */
+  resolveCredentialsFromEnv(args) {
+    const connectionId = args.connectionId;
+    if (!connectionId) return args;
+
+    const prefix = this.connectionIdToEnvPrefix(connectionId);
+    const resolved = { ...args };
+
+    if (!resolved.password) {
+      const envKey = `${prefix}_PASSWORD`;
+      const envValue = process.env[envKey];
+      if (envValue) {
+        logger.info(`Resolved password from env: ${envKey}`);
+        resolved.password = envValue;
+      } else {
+        logger.debug(`No env var found for password: ${envKey}`);
+      }
+    }
+
+    if (!resolved.enablePassword) {
+      const envKey = `${prefix}_ENABLE_PASSWORD`;
+      const envValue = process.env[envKey];
+      if (envValue) {
+        logger.info(`Resolved enable password from env: ${envKey}`);
+        resolved.enablePassword = envValue;
+      }
+    }
+
+    if (!resolved.username) {
+      const envKey = `${prefix}_USERNAME`;
+      const envValue = process.env[envKey];
+      if (envValue) {
+        logger.info(`Resolved username from env: ${envKey}`);
+        resolved.username = envValue;
+      }
+    }
+
+    return resolved;
+  }
+
+  // ===========================================================================
   // CSV/JSON CONNECTION FILE LOADING
   // ===========================================================================
   parseConnectionsFile(filePath) {
@@ -240,7 +304,6 @@ class SSHMCPServer {
       throw new Error('Empty connections file');
     }
 
-    // Check if first line is header
     const firstLine = lines[0].toLowerCase();
     const hasHeader = firstLine.includes('host') || firstLine.includes('user') || firstLine.includes('ip');
     const dataLines = hasHeader ? lines.slice(1) : lines;
@@ -250,11 +313,11 @@ class SSHMCPServer {
       const parts = line.includes(';') ? line.split(';') : line.split(',');
       const trimmed = parts.map(p => p.trim());
 
-      if (trimmed.length >= 3) {
+      if (trimmed.length >= 2) {
         connections.push({
           host: trimmed[0],
           username: trimmed[1],
-          password: trimmed[2],
+          password: trimmed[2] || null,
           port: parseInt(trimmed[3]) || 22,
           deviceType: trimmed[4] || 'linux',
           connectionId: trimmed[5] || trimmed[0],
@@ -562,6 +625,8 @@ class SSHMCPServer {
   // CONNECTION HANDLERS
   // ===========================================================================
   async handleSSHConnect(args) {
+    const resolved = this.resolveCredentialsFromEnv(args);
+
     const {
       host: hostParam,
       hostname,
@@ -573,7 +638,7 @@ class SSHMCPServer {
       connectionId = 'default',
       deviceType = 'linux',
       enablePassword,
-    } = args;
+    } = resolved;
 
     const host = hostParam || hostname;
     if (!host) throw new Error('host is required');
@@ -615,7 +680,7 @@ class SSHMCPServer {
       } else if (password) {
         config.password = password;
       } else {
-        return reject(new Error('Either password or privateKey required'));
+        return reject(new Error('Either password or privateKey required. Set <CONNECTIONID>_PASSWORD env var or provide password directly.'));
       }
 
       conn.on('ready', async () => {
@@ -626,6 +691,7 @@ class SSHMCPServer {
           host,
           port,
           username,
+          connectionId,
           deviceType: deviceType.toLowerCase(),
           enablePassword,
           shell: null,
@@ -811,11 +877,12 @@ class SSHMCPServer {
       throw new Error(`File not found: ${absolutePath}`);
     }
 
-    const connections = this.parseConnectionsFile(absolutePath);
+    const rawConnections = this.parseConnectionsFile(absolutePath);
     const results = [];
 
     if (connectAll) {
-      for (const connConfig of connections) {
+      for (const rawEntry of rawConnections) {
+        const connConfig = this.resolveCredentialsFromEnv(rawEntry);
         try {
           logger.info(`Connecting to ${connConfig.host}`, { connectionId: connConfig.connectionId });
           await this.handleSSHConnect(connConfig);
@@ -826,8 +893,8 @@ class SSHMCPServer {
         }
       }
     } else {
-      for (const connConfig of connections) {
-        results.push({ host: connConfig.host, connectionId: connConfig.connectionId, status: 'loaded' });
+      for (const rawEntry of rawConnections) {
+        results.push({ host: rawEntry.host, connectionId: rawEntry.connectionId, status: 'loaded' });
       }
     }
 
@@ -859,14 +926,12 @@ class SSHMCPServer {
       throw new Error(`No connection: ${connectionId}. Connection may have been closed by remote host.`);
     }
 
-    // Check if connection is still alive
     if (!connection.conn || !connection.conn._sock || connection.conn._sock.destroyed) {
       logger.error(`Connection dead: ${connectionId}`, { host: connection.host });
       this.connections.delete(connectionId);
       throw new Error(`Connection ${connectionId} was closed by remote host. Please reconnect.`);
     }
 
-    // Check if shell was closed for network devices
     if (['cisco', 'mikrotik', 'juniper', 'network'].includes(connection.deviceType)) {
       if (!connection.shell || !connection.shellReady) {
         logger.warn(`⚠ Shell not ready for ${connectionId}, attempting to reopen`, { host: connection.host });
@@ -881,12 +946,10 @@ class SSHMCPServer {
 
     logger.info(`Executing command`, { connectionId, command, deviceType: connection.deviceType });
 
-    // Use shell mode for Cisco/network devices
     if (connection.shell && connection.shellReady) {
       return await this.executeViaShell(connection, command, timeout, connectionId);
     }
 
-    // Standard exec mode for Linux
     return await this.executeViaExec(connection, command, timeout, connectionId);
   }
 
@@ -894,19 +957,16 @@ class SSHMCPServer {
     return new Promise((resolve, reject) => {
       const { shell } = connection;
 
-      // Clear buffer before sending command
       connection.shellBuffer = '';
 
       logger.debug(`Sending command via shell`, { connectionId, command });
 
-      // Send command
       shell.write(command + '\n');
 
-      // Wait for output
       let lastBufferLength = 0;
       let stableCount = 0;
       const checkInterval = 500;
-      const stableThreshold = 3; // Buffer unchanged for 3 checks = command complete
+      const stableThreshold = 3;
 
       const timeoutId = setTimeout(() => {
         clearInterval(intervalId);
@@ -982,6 +1042,104 @@ class SSHMCPServer {
     });
   }
 
+  // ===========================================================================
+  // CISCO ENABLE MODE
+  // ===========================================================================
+  async handleCiscoEnable(args) {
+    const { connectionId = 'default', enablePassword: providedPassword, timeout = 10000 } = args;
+
+    const connection = this.connections.get(connectionId);
+    if (!connection) {
+      throw new Error(`No connection: ${connectionId}`);
+    }
+
+    if (!connection.shell || !connection.shellReady) {
+      throw new Error(`No shell session for ${connectionId}. Device type must be 'cisco' or 'network'.`);
+    }
+
+    let password = providedPassword || connection.enablePassword;
+
+    if (!password) {
+      const prefix = this.connectionIdToEnvPrefix(connectionId);
+      const envKey = `${prefix}_ENABLE_PASSWORD`;
+      password = process.env[envKey];
+      if (password) {
+        logger.info(`Resolved enable password from env: ${envKey}`);
+      }
+    }
+
+    if (!password) {
+      throw new Error(`No enable password. Set ${this.connectionIdToEnvPrefix(connectionId)}_ENABLE_PASSWORD env var or provide enablePassword.`);
+    }
+
+    logger.info(`Entering enable mode`, { connectionId });
+
+    return new Promise((resolve, reject) => {
+      connection.shellBuffer = '';
+      connection.shell.write('enable\n');
+
+      let passwordSent = false;
+      let lastBufferLength = 0;
+      let stableCount = 0;
+
+      const timeoutId = setTimeout(() => {
+        clearInterval(intervalId);
+        reject(new Error(`Enable mode timeout after ${timeout}ms. Buffer: ${connection.shellBuffer.slice(-200)}`));
+      }, timeout);
+
+      const intervalId = setInterval(() => {
+        const buffer = connection.shellBuffer;
+
+        if (!passwordSent) {
+          const lastChars = buffer.slice(-200).toLowerCase();
+          if (lastChars.includes('password:') || lastChars.includes('password :')) {
+            logger.debug(`🔐 Enable password prompt detected`, { connectionId });
+            connection.shell.write(password + '\n');
+            passwordSent = true;
+            lastBufferLength = buffer.length;
+            stableCount = 0;
+            return;
+          }
+        }
+
+        if (buffer.length === lastBufferLength) {
+          stableCount++;
+          if (stableCount >= 3) {
+            clearInterval(intervalId);
+            clearTimeout(timeoutId);
+
+            const lastLine = buffer.trim().split('\n').pop() || '';
+            const success = lastLine.includes('#');
+
+            if (success) {
+              logger.info(`✓ Enable mode activated`, { connectionId, prompt: lastLine.trim() });
+              resolve({
+                content: [{
+                  type: 'text',
+                  text: `[${connectionId}] Enable mode activated. Prompt: ${lastLine.trim()}`,
+                }],
+              });
+            } else {
+              logger.warn(`✗ Enable mode may have failed`, { connectionId, lastLine });
+              resolve({
+                content: [{
+                  type: 'text',
+                  text: `[${connectionId}] Enable mode result (check prompt):\n${buffer}`,
+                }],
+              });
+            }
+          }
+        } else {
+          lastBufferLength = buffer.length;
+          stableCount = 0;
+        }
+      }, 500);
+    });
+  }
+
+  // ===========================================================================
+  // MULTI-CONNECTION EXECUTION
+  // ===========================================================================
   async handleExecuteOnMultiple(args) {
     const { command, connectionIds = [], timeout = 30000 } = args;
 
@@ -990,17 +1148,12 @@ class SSHMCPServer {
       throw new Error(`Command blocked: ${validation.reason}`);
     }
 
-    // Determine which connections to use
     let targetIds;
 
     if (connectionIds.length === 0 || (connectionIds.length === 1 && connectionIds[0] === '*')) {
-      // Empty array or "*" means all connections
       targetIds = Array.from(this.connections.keys());
     } else {
-      // Specific connection IDs provided
       targetIds = connectionIds;
-
-      // Validate that all requested connections exist
       const missingIds = targetIds.filter(id => !this.connections.has(id));
       if (missingIds.length > 0) {
         throw new Error(`Connections not found: ${missingIds.join(', ')}`);
@@ -1049,7 +1202,6 @@ class SSHMCPServer {
 
     logger.info(`Disconnecting: ${connectionId}`, { host: connection.host });
 
-    // Clear keepalive interval
     if (connection.keepaliveInterval) {
       clearInterval(connection.keepaliveInterval);
     }
@@ -1073,7 +1225,6 @@ class SSHMCPServer {
     for (const connectionId of connectionIds) {
       try {
         const connection = this.connections.get(connectionId);
-        // Clear keepalive interval
         if (connection.keepaliveInterval) {
           clearInterval(connection.keepaliveInterval);
         }
@@ -1126,7 +1277,6 @@ class SSHMCPServer {
         deviceType: connection.deviceType,
       };
 
-      // Check if underlying socket is still alive
       if (!connection.conn || !connection.conn._sock) {
         status.status = 'DEAD';
         status.reason = 'Connection object destroyed';
@@ -1141,7 +1291,6 @@ class SSHMCPServer {
         deadConnections.push(connectionId);
       } else {
         status.status = 'ALIVE';
-        // Check shell status for network devices
         if (['cisco', 'mikrotik', 'juniper', 'network'].includes(connection.deviceType)) {
           if (connection.shell && connection.shellReady) {
             status.shellStatus = 'ACTIVE';
@@ -1155,7 +1304,6 @@ class SSHMCPServer {
       results.push(status);
     }
 
-    // Clean up dead connections
     for (const deadId of deadConnections) {
       logger.warn(`Removing dead connection: ${deadId}`);
       this.connections.delete(deadId);
