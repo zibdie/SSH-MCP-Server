@@ -4,15 +4,19 @@
 [![CI/CD](https://github.com/marian-craciunescu/ssh-mcp-server-secured/actions/workflows/ci.yml/badge.svg)](https://github.com/marian-craciunescu/ssh-mcp-server-secured/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A **secured** fork of [zibdie/SSH-MCP-Server](https://github.com/zibdie/SSH-MCP-Server) with command whitelist/blacklist filtering for safe remote server management via MCP (Model Context Protocol).
+A **secured** fork of [zibdie/SSH-MCP-Server](https://github.com/zibdie/SSH-MCP-Server) with command whitelist/blacklist filtering, network device support, and bulk connection management for safe remote server management via MCP (Model Context Protocol).
 
-## Key Security Features
+## Key Features
 
-- **Command Whitelist/Blacklist**: Control which commands can be executed
-- **Dangerous Pattern Detection**: Blocks fork bombs, command injection, and destructive patterns
-- **Configurable Security Policies**: Via config file or environment variables
-- **Audit Logging**: Log all blocked command attempts
-- **Sudo Control**: Optional restriction of sudo usage
+* **Command Whitelist/Blacklist**: Control which commands can be executed
+* **Dangerous Pattern Detection**: Blocks fork bombs, command injection, and destructive patterns
+* **Network Device Support**: Cisco, Juniper, MikroTik with persistent shell sessions and enable mode
+* **Bulk Connection Management**: Load dozens of connections from CSV/JSON files
+* **Environment Variable Credentials**: Passwords auto-resolved from env vars by connectionId — no secrets in chat
+* **Multi-Connection Execution**: Run commands across all or selected connections simultaneously
+* **Connection Health Monitoring**: Keepalive tracking, dead connection detection, auto-cleanup
+* **Configurable Security Policies**: Via config file or environment variables
+* **Audit Logging**: Log all blocked command attempts
 
 ## Installation
 
@@ -29,11 +33,6 @@ claude mcp add ssh-mcp-secured npx '@marian-craciunescu/ssh-mcp-server-secured@l
 npm install -g @marian-craciunescu/ssh-mcp-server-secured
 ```
 
-Add to your Claude configuration:
-
-**macOS/Linux**: `~/.config/claude/claude_desktop_config.json`  
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
 ```json
 {
   "mcpServers": {
@@ -43,33 +42,91 @@ Add to your Claude configuration:
   }
 }
 ```
-### 1. Bulk Connections from File
 
-Load multiple connections from a CSV or JSON file:
+## Usage
 
-**CSV format** (`connections.csv`):
-```csv
-host,username,password,port,deviceType,connectionId,enablePassword
-10.2.2.2,admin,admin123,22,cisco,router1,enable123
-10.1.2.15,noc,noc123,22,cisco,router2,
-192.168.1.1,root,password,22,linux,server1,
+### 1. Single Connection
+
+Connect to a host using `ssh_connect`. You only need to provide host, username, and connectionId — the password is automatically resolved from environment variables:
+
+```
+Connect to host 172.168.0.2 with user admin connectionId=router1
 ```
 
+The LLM calls `ssh_connect` with:
+
+```json
+{
+  "host": "172.168.0.2",
+  "username": "admin",
+  "deviceType": "cisco",
+  "connectionId": "router1"
+}
+```
+
+**No password in the tool call.** The server automatically looks up `ROUTER1_PASSWORD` from environment variables.
+
+#### Credential Resolution Convention
+
+The connectionId is converted to an env var prefix: uppercased, non-alphanumeric characters replaced with `_`.
+
+| connectionId | Env var for password | Env var for enable password |
+|---|---|---|
+| `router1` | `ROUTER1_PASSWORD` | `ROUTER1_ENABLE_PASSWORD` |
+| `my-connection` | `MY_CONNECTION_PASSWORD` | `MY_CONNECTION_ENABLE_PASSWORD` |
+| `dc1.switch.3` | `DC1_SWITCH_3_PASSWORD` | `DC1_SWITCH_3_ENABLE_PASSWORD` |
+
+Optionally, `<PREFIX>_USERNAME` is also resolved if username is not provided.
+
+Set credentials in your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "ssh-mcp-secured": {
+      "command": "ssh-mcp-server-secured",
+      "env": {
+        "SSH_FILTER_MODE": "blacklist",
+        "ROUTER1_PASSWORD": "admin123",
+        "ROUTER1_ENABLE_PASSWORD": "enable123",
+        "SERVER1_PASSWORD": "rootpass",
+        "SERVER1_USERNAME": "root"
+      }
+    }
+  }
+}
+```
+
+Credentials live in the MCP config (or are injected via CI/CD, vault, etc.) and **never appear in chat or tool calls**. If a password is explicitly provided in the tool call, it takes precedence over the env var.
+
+### 2. Bulk Connections from File
+
+Load multiple connections from a CSV or JSON file using `ssh_load_connections`. Passwords are resolved from env vars using the same connectionId convention:
+
+**CSV format** (`connections.csv`):
+
+```csv
+host,username,port,deviceType,connectionId
+172.168.0.2,admin,22,cisco,router1
+10.1.2.15,noc,22,cisco,router2
+192.168.1.1,root,22,linux,server1
+```
+
+No passwords in the file. The server resolves `ROUTER1_PASSWORD`, `ROUTER2_PASSWORD`, `SERVER1_PASSWORD` from env vars.
+
 **JSON format** (`connections.json`):
+
 ```json
 [
   {
-    "host": "10.2.2.2",
+    "host": "172.168.0.2",
     "username": "admin",
-    "password": "admin123",
     "deviceType": "cisco",
-    "connectionId": "router1",
-    "enablePassword": "enable123"
+    "connectionId": "router1"
   },
   {
     "host": "10.1.2.15",
     "username": "noc",
-    "password": "noc123",
     "deviceType": "cisco",
     "connectionId": "router2"
   }
@@ -77,18 +134,43 @@ host,username,password,port,deviceType,connectionId,enablePassword
 ```
 
 **Usage:**
+
 ```
 Load connections from /path/to/connections.csv and connect to all
 ```
 
+> **Note:** You can still provide passwords directly in CSV/JSON if preferred — env var resolution only kicks in when the password field is missing or empty.
 
+### 3. Network Device Types
 
+The server supports different device types with appropriate connection handling:
 
-### 2. Execute on Multiple Connections
+| Device Type | Behavior | Use Case |
+|-------------|----------|----------|
+| `linux` | Standard SSH exec mode (default) | Linux/Unix servers |
+| `cisco` | Persistent shell, enable mode support | Cisco IOS/IOS-XE routers and switches |
+| `juniper` | Persistent shell | Juniper JunOS devices |
+| `mikrotik` | Persistent shell | MikroTik RouterOS |
+| `network` | Generic persistent shell | Other network devices |
 
-Run a command on specific connections:
+Network devices use PTY-allocated persistent shell sessions instead of standard `exec()` because many network operating systems close the SSH channel after each exec command.
 
-Tool: `ssh_execute_on_multiple`
+### 4. Cisco Enable Mode
+
+Enter privileged EXEC mode on Cisco devices using `ssh_cisco_enable`:
+
+```json
+{
+  "connectionId": "router1"
+}
+```
+
+The tool handles the interactive enable password prompt automatically — it sends `enable`, waits for `Password:`, sends the stored `enablePassword`, and verifies the prompt changed to `#`.
+
+### 5. Execute on Multiple Connections
+
+Run a command on specific connections using `ssh_execute_on_multiple`:
+
 ```json
 {
   "command": "show version",
@@ -97,16 +179,15 @@ Tool: `ssh_execute_on_multiple`
 ```
 
 Or run on ALL connections:
+
 ```json
 {
-  "command": "show version",
+  "command": "show ip interface brief",
   "connectionIds": ["*"]
 }
 ```
 
-
-
-### 4. Logging
+### 6. Logging
 
 Set log level via environment variable:
 
@@ -116,12 +197,12 @@ Set log level via environment variable:
 | `SSH_LOG_FILE` | Path to log file | (none) |
 
 Log format:
-```
-[2024-01-15T10:30:45.123Z] [INFO ] Connected to 10.2.2.2:22 | {"connectionId":"router1"}
-[2024-01-15T10:30:46.456Z] [DEBUG] Shell data received | {"length":256}
-[2024-01-15T10:30:47.789Z] [WARN ] Command blocked: blacklisted | {"command":"rm -rf /"}
-```
 
+```
+[2026-01-22T20:26:02.044Z] [INFO ] ✓ SSH connection established to 172.168.0.2:22
+[2026-01-22T20:26:02.046Z] [DEBUG] ♥ Keepalive #1 sent to 172.168.0.2 | {"uptime":"10s"}
+[2026-01-22T20:26:12.047Z] [WARN ] ⚠ CONNECTION CLOSED BY REMOTE HOST: router1
+```
 
 ## Configuration
 
@@ -136,6 +217,10 @@ Log format:
 | `SSH_WHITELIST` | comma-separated or JSON | - | Override whitelist commands |
 | `SSH_BLACKLIST` | comma-separated or JSON | - | Override blacklist commands |
 | `SSH_DANGEROUS_PATTERNS` | JSON array | - | Override dangerous regex patterns |
+| `SSH_LOG_LEVEL` | `DEBUG`, `INFO`, `WARN`, `ERROR` | `INFO` | Log verbosity |
+| `SSH_LOG_FILE` | path | - | Log to file |
+
+Any additional environment variables following the `<CONNECTIONID>_PASSWORD` convention are automatically used for credential resolution (see [Credential Resolution Convention](#credential-resolution-convention)).
 
 ### MCP Configuration Examples
 
@@ -144,34 +229,57 @@ Log format:
 ```json
 {
   "ssh_mcp": {
-    "command": "/usr/local/bin/ssh-mcp-server-secured",
+    "command": "ssh-mcp-server-secured",
     "args": [],
     "env": {
       "SSH_FILTER_MODE": "blacklist",
       "SSH_ALLOW_SUDO": "true",
       "SSH_LOG_BLOCKED": "true",
-      "SSH_BLACKLIST": "rm,rmdir,mkfs,fdisk,shutdown,reboot,halt,poweroff,passwd,useradd,userdel,iptables,crontab"
+      "SSH_BLACKLIST": "rm,rmdir,mkfs,fdisk,shutdown,reboot,halt,poweroff,passwd,useradd,userdel,iptables,crontab,conf t,configure terminal"
     }
   }
 }
 ```
 
-**Whitelist mode (strict - only allow specific commands):**
+**Whitelist mode (strict — only allow specific commands):**
 
 ```json
 {
   "ssh_mcp": {
-    "command": "/usr/local/bin/ssh-mcp-server-secured",
+    "command": "ssh-mcp-server-secured",
     "args": [],
     "env": {
       "SSH_FILTER_MODE": "whitelist",
-      "SSH_ALLOW_SUDO": "true",
+      "SSH_ALLOW_SUDO": "false",
       "SSH_LOG_BLOCKED": "true",
-      "SSH_WHITELIST": "ls,cat,grep,tail,head,df,du,free,uptime,ps,systemctl,journalctl,docker,kubectl,ping,curl,dig,ss,netstat"
+      "SSH_WHITELIST": "ls,cat,grep,tail,head,df,du,free,uptime,ps,systemctl,journalctl,docker,kubectl,ping,curl,dig,ss,netstat,show,display"
     }
   }
 }
 ```
+
+**Network operations with credential env vars:**
+
+```json
+{
+  "ssh_mcp": {
+    "command": "ssh-mcp-server-secured",
+    "args": [],
+    "env": {
+      "SSH_FILTER_MODE": "blacklist",
+      "SSH_ALLOW_SUDO": "true",
+      "SSH_LOG_LEVEL": "DEBUG",
+      "SSH_BLACKLIST": "conf t,configure terminal,rm,shutdown,reboot",
+      "ROUTER1_PASSWORD": "admin123",
+      "ROUTER1_ENABLE_PASSWORD": "enable123",
+      "ROUTER2_PASSWORD": "pass123",
+      "SERVER1_PASSWORD": "pass1234"
+    }
+  }
+}
+```
+
+Now in chat you simply say `connect to 172.168.0.2 as admin connectionId=router1` — no passwords exposed.
 
 **Via npx (no global install):**
 
@@ -199,10 +307,10 @@ Create `config.json` or `ssh-mcp-config.json`:
     "allowSudo": false,
     "logBlocked": true,
     "whitelist": [
-      "ls", "cat", "grep", "df", "ps", "systemctl", "docker"
+      "ls", "cat", "grep", "df", "ps", "systemctl", "docker", "show", "ping"
     ],
     "blacklist": [
-      "rm", "shutdown", "reboot", "passwd"
+      "rm", "shutdown", "reboot", "passwd", "conf t", "configure terminal"
     ],
     "dangerousPatterns": [
       ";\\s*rm\\s+-rf",
@@ -216,14 +324,15 @@ Create `config.json` or `ssh-mcp-config.json`:
 
 ### Blacklist Mode (Default)
 
-Commands in the blacklist are blocked. Everything else is allowed.
+Commands in the blacklist are blocked. Everything else is allowed. Supports multi-word entries like `configure terminal` and `conf t`.
 
 ```
 ✓ ls -la
 ✓ docker ps
-✓ systemctl status nginx
-✗ rm -rf /tmp/files     → Blocked: 'rm' is in blacklist
-✗ shutdown now          → Blocked: 'shutdown' is in blacklist
+✓ show ip interface brief
+✗ rm -rf /tmp/files       → Blocked: 'rm' is in blacklist
+✗ configure terminal      → Blocked: 'configure terminal' is in blacklist
+✗ shutdown now            → Blocked: 'shutdown' is in blacklist
 ```
 
 ### Whitelist Mode
@@ -231,15 +340,24 @@ Commands in the blacklist are blocked. Everything else is allowed.
 Only commands in the whitelist are allowed. Everything else is blocked.
 
 ```
-✓ ls -la                → Allowed: 'ls' is whitelisted
-✓ df -h                 → Allowed: 'df' is whitelisted
-✗ vim /etc/hosts        → Blocked: 'vim' not in whitelist
-✗ make install          → Blocked: 'make' not in whitelist
+✓ ls -la                  → Allowed: 'ls' is whitelisted
+✓ show version            → Allowed: 'show' is whitelisted
+✗ vim /etc/hosts          → Blocked: 'vim' not in whitelist
+✗ make install            → Blocked: 'make' not in whitelist
 ```
 
 ### Disabled Mode
 
 No command filtering (use with caution).
+
+### Command Validation Order
+
+1. Check if filtering disabled
+2. Check sudo permission
+3. Check dangerous patterns (regex)
+4. Check full command against blacklist (multi-word support)
+5. Extract base commands from pipes/chains
+6. Check each base command against blacklist/whitelist
 
 ## Dangerous Patterns
 
@@ -247,7 +365,7 @@ These patterns are **always blocked** regardless of filter mode:
 
 | Pattern | Example | Risk |
 |---------|---------|------|
-| Fork bomb | `:(){ :|:& };:` | System crash |
+| Fork bomb | `:(){ :\|:& };:` | System crash |
 | Piped rm | `find . \| rm` | Data loss |
 | Chained rm | `ls && rm -rf /` | Data loss |
 | Device redirect | `> /dev/sda` | Disk corruption |
@@ -255,107 +373,66 @@ These patterns are **always blocked** regardless of filter mode:
 | Remote code execution | `curl \| bash` | Arbitrary code execution |
 | Recursive chmod 777 | `chmod -R 777 /` | Security compromise |
 
-
 ## Available Tools
 
 | Tool | Description |
 |------|-------------|
-| `ssh_connect` | Connect to single host |
-| `ssh_load_connections` | Load connections from CSV/JSON file |
-| `ssh_execute` | Execute command on one connection |
-| `ssh_execute_on_multiple` | Execute command on selected connections |
+| `ssh_connect` | Connect to a single host (password auto-resolved from `<CONNECTIONID>_PASSWORD` env var) |
+| `ssh_load_connections` | Load connections from CSV/JSON file (credentials resolved from env vars per connectionId) |
+| `ssh_execute` | Execute a command on one connection |
+| `ssh_cisco_enable` | Enter Cisco privileged EXEC mode (interactive enable password handling) |
+| `ssh_execute_on_multiple` | Execute a command on selected connections (`["*"]` = all) |
 | `ssh_disconnect` | Disconnect one connection |
 | `ssh_disconnect_all` | Disconnect all connections |
-| `ssh_list_connections` | List active connections |
-| `ssh_check_connections` | Check health of all connections |
+| `ssh_list_connections` | List active connections with status |
+| `ssh_check_connections` | Health check all connections (dead socket detection, shell status) |
 | `ssh_upload_file` | Upload file via SFTP |
 | `ssh_download_file` | Download file via SFTP |
-| `ssh_list_files` | List remote directory |
+| `ssh_list_files` | List remote directory via SFTP |
 
-## Environment Variables
-
-| Variable | Values | Default | Description |
-|----------|--------|---------|-------------|
-| `SSH_FILTER_MODE` | whitelist, blacklist, disabled | blacklist | Command filtering |
-| `SSH_ALLOW_SUDO` | true, false | true | Allow sudo |
-| `SSH_WHITELIST` | comma-separated | - | Allowed commands |
-| `SSH_BLACKLIST` | comma-separated | - | Blocked commands |
-| `SSH_LOG_LEVEL` | DEBUG, INFO, WARN, ERROR | INFO | Log verbosity |
-| `SSH_LOG_FILE` | path | - | Log to file |
-
-
-### File Operations
-
-| Tool | Description |
-|------|-------------|
-| `ssh_upload_file` | Upload file via SFTP |
-| `ssh_download_file` | Download file via SFTP |
-| `ssh_list_files` | List remote directory |
-
-## Examples
-
-### Basic Connection
+## Example Workflow
 
 ```
-Connect to 192.168.1.100 as admin with password secret123
+1. Load connections from CSV (passwords auto-resolved from env vars)
+   → ssh_load_connections { filePath: "devices.csv", connectAll: true }
+   (ROUTER1_PASSWORD, ROUTER2_PASSWORD resolved automatically)
+
+2. Enter enable mode on Cisco routers
+   → ssh_cisco_enable { connectionId: "router1" }
+   → ssh_cisco_enable { connectionId: "router2" }
+
+3. Execute show commands on all devices
+   → ssh_execute_on_multiple {
+       command: "show ip interface brief",
+       connectionIds: ["*"]
+     }
+
+4. Execute privileged command on specific router
+   → ssh_execute {
+       command: "show running-config | include hostname",
+       connectionId: "router1"
+     }
+
+5. Check connection health
+   → ssh_check_connections {}
+
+6. Disconnect all
+   → ssh_disconnect_all {}
 ```
 
-```json
-{
-  "host": "192.168.1.100",
-  "username": "admin",
-  "password": "secret123"
-}
-```
+## Architecture Notes
 
-### Execute Command
+### Shell Buffer Management
+Buffer is cleared before each command. Stability detection uses buffer unchanged for 3 × 500ms = command complete. Password prompts are detected in the last 200 chars of the buffer.
 
-```
-Check disk space on my server
-```
+### Keepalive System
+SSH2 sends keepalives every 10 seconds (`keepaliveInterval: 10000`). After 3 failed keepalives, the connection auto-closes (`keepaliveCountMax: 3`). A custom interval logs keepalive count for debugging.
 
-```json
-{
-  "command": "df -h"
-}
-```
+### Connection Health Monitoring
+The server detects dead connections (socket destroyed), tracks shell status for network devices, auto-cleans dead connections, and attempts shell reopen on network devices if the shell has closed.
 
-### Validate Before Execute
-
-```
-Check if 'rm -rf /tmp/old' would be allowed
-```
-
-```json
-{
-  "command": "rm -rf /tmp/old"
-}
-```
-
-Response:
-```json
-{
-  "command": "rm -rf /tmp/old",
-  "allowed": false,
-  "reason": "Command 'rm' is blocked by blacklist",
-  "extractedCommands": ["rm"]
-}
-```
-
-### Using sudo with -S
-
-For commands requiring sudo on non-interactive sessions:
-
-```bash
-echo 'yourpassword' | sudo -S systemctl status nginx
-```
-
-Or configure passwordless sudo on the target server:
-
-```bash
-# On target server
-echo "username ALL=(ALL) NOPASSWD: /usr/bin/systemctl *" | sudo tee /etc/sudoers.d/username-systemctl
-```
+### Environment Variable Credential Resolution
+When a connection is created (via `ssh_connect` or `ssh_load_connections`), if the password is not provided, the server automatically looks up `<PREFIX>_PASSWORD` from environment variables, where `<PREFIX>` is the connectionId uppercased with non-alphanumeric characters replaced by `_`. The same convention applies to `_ENABLE_PASSWORD` and `_USERNAME`. Explicitly provided values always take precedence.
 
 ## Comparison with Original
 
@@ -364,10 +441,18 @@ echo "username ALL=(ALL) NOPASSWD: /usr/bin/systemctl *" | sudo tee /etc/sudoers
 | Basic SSH/SFTP | ✓ | ✓ |
 | Command whitelist | ✗ | ✓ |
 | Command blacklist | ✗ | ✓ |
+| Multi-word blacklist entries | ✗ | ✓ |
 | Dangerous pattern detection | ✗ | ✓ |
 | Audit logging | ✗ | ✓ |
 | Command validation tool | ✗ | ✓ |
 | Config file support | ✗ | ✓ |
+| Network device types (Cisco, Juniper, MikroTik) | ✗ | ✓ |
+| Cisco enable mode | ✗ | ✓ |
+| Bulk connections from CSV/JSON | ✗ | ✓ |
+| Multi-connection execution | ✗ | ✓ |
+| Environment variable credentials | ✗ | ✓ |
+| Connection health monitoring | ✗ | ✓ |
+| Keepalive tracking | ✗ | ✓ |
 | `host`/`hostname` compatibility | ✗ | ✓ |
 
 ## Development
@@ -389,21 +474,22 @@ npx @modelcontextprotocol/inspector node index.js
 
 ## Security Considerations
 
-- **Default is blacklist mode** - provides protection while remaining flexible
-- **Dangerous patterns are always checked** - even in disabled mode
-- **Audit logging enabled by default** - track blocked attempts
-- **Sudo can be restricted** - set `SSH_ALLOW_SUDO=false` for high-security environments
+* **Default is blacklist mode** — provides protection while remaining flexible
+* **Dangerous patterns are always checked** — even in disabled mode
+* **Audit logging enabled by default** — track blocked attempts
+* **Sudo can be restricted** — set `SSH_ALLOW_SUDO=false` for high-security environments
+* **Credential isolation** — passwords are resolved from env vars by connectionId, never typed in chat or visible in tool calls
 
 ## License
 
-MIT - see [LICENSE](LICENSE) file
+MIT — see [LICENSE](LICENSE) file
 
 ## Credits
 
-- Original: [zibdie/SSH-MCP-Server](https://github.com/zibdie/SSH-MCP-Server) by Nour Zibdie
-- Security fork: [marian-craciunescu](https://github.com/marian-craciunescu)
+* Original: [zibdie/SSH-MCP-Server](https://github.com/zibdie/SSH-MCP-Server) by Nour Zibdie
+* Security fork: [marian-craciunescu](https://github.com/marian-craciunescu)
 
 ## Support
 
-- [Issues](https://github.com/marian-craciunescu/ssh-mcp-server-secured/issues)
-- [Discussions](https://github.com/marian-craciunescu/ssh-mcp-server-secured/discussions)
+* [Issues](https://github.com/marian-craciunescu/ssh-mcp-server-secured/issues)
+* [Discussions](https://github.com/marian-craciunescu/ssh-mcp-server-secured/discussions)
