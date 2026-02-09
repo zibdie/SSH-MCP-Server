@@ -1,5 +1,5 @@
 {
-  "dxt_version": "1.0.4",
+  "dxt_version": "1.0.5",
   "name": "@marian-craciunescu/ssh-mcp-server-secured",
   "description": "MCP server for SSH connections with comprehensive remote server management tools",
   "author": {
