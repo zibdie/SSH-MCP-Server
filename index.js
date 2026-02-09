@@ -649,6 +649,10 @@ class SSHMCPServer {
 
     logger.info(`Connecting to ${host}:${port}`, { connectionId, deviceType, username });
 
+    // Resolve private key path BEFORE entering Promise scope
+    // (Promise's resolve/reject params would shadow path.resolve inside)
+    const resolvedKeyPath = privateKey ? resolve(privateKey) : null;
+
     return new Promise((resolve, reject) => {
       const conn = new Client();
 
@@ -670,9 +674,9 @@ class SSHMCPServer {
         readyTimeout: '30s'
       });
 
-      if (privateKey) {
+      if (resolvedKeyPath) {
         try {
-          config.privateKey = readFileSync(resolve(privateKey));
+          config.privateKey = readFileSync(resolvedKeyPath);
           if (passphrase) config.passphrase = passphrase;
         } catch (error) {
           return reject(new Error(`Failed to read private key: ${error.message}`));
