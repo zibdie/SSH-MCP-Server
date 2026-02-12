@@ -11,6 +11,10 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } fr
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import express from 'express';
+import cors from 'cors';
+
 // Get package.json version
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1782,12 +1786,61 @@ class SSHMCPServer {
   // RUN
   // ===========================================================================
   async run() {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    logger.info(`SSH MCP Server started`, {
-      version: packageJson.version,
-      filterMode: this.commandFilter.mode,
-      logLevel: logger.level,
+    const ssePort = process.env.SSE_PORT || (process.argv.includes('--sse') ? '3001' : null);
+
+    if (ssePort) {
+      // SSE mode — HTTP server with /sse and /message endpoints
+      await this.runSSE(parseInt(ssePort));
+    } else {
+      // Default — stdio mode
+      const transport = new StdioServerTransport();
+      await this.server.connect(transport);
+      logger.info(`SSH MCP Server started [stdio]`, {
+        version: packageJson.version,
+        filterMode: this.commandFilter.mode,
+        logLevel: logger.level,
+      });
+    }
+  }
+
+  async runSSE(port) {
+    const app = express();
+    app.use(cors());
+
+    // Map to track SSE transports by session
+    const transports = new Map();
+
+    // SSE endpoint — client connects here first (GET)
+    app.get('/sse', async (req, res) => {
+      logger.info('New SSE client connected');
+      const transport = new SSEServerTransport('/message', res);
+      transports.set(transport.sessionId, transport);
+
+      res.on('close', () => {
+        logger.info('SSE client disconnected', { sessionId: transport.sessionId });
+        transports.delete(transport.sessionId);
+      });
+
+      await this.server.connect(transport);
+    });
+
+    // Message endpoint — client sends JSON-RPC here (POST)
+    app.post('/message', express.json(), async (req, res) => {
+      const sessionId = req.query.sessionId;
+      const transport = transports.get(sessionId);
+      if (!transport) {
+        res.status(400).json({ error: 'Unknown session' });
+        return;
+      }
+      await transport.handlePostMessage(req, res);
+    });
+
+    app.listen(port, () => {
+      logger.info(`SSH MCP Server started [SSE] on http://localhost:${port}/sse`, {
+        version: packageJson.version,
+        filterMode: this.commandFilter.mode,
+        logLevel: logger.level,
+      });
     });
   }
 }
