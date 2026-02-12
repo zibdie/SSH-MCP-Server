@@ -8,7 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { Client } from 'ssh2';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } from 'fs';
-import { resolve, basename, dirname } from 'path';
+import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 // Get package.json version
@@ -96,6 +96,26 @@ const DEFAULT_COMMAND_FILTER = {
   ],
   allowSudo: true,
   logBlocked: true,
+};
+
+// =============================================================================
+// JUMP SHELL PRESETS
+// =============================================================================
+// Built-in configurations for "SSH → enter nested CLI" scenarios.
+// jumpCommand=null means user must supply it manually.
+const JUMP_SHELL_PRESETS = {
+  freeswitch: {
+    jumpCommand: 'fs_cli',
+    jumpPromptPattern: 'freeswitch@[^>]*>\\s*$',
+    jumpExitCommand: '/exit',
+    jumpReadyTimeout: 5000,
+  },
+  topex: {
+    jumpCommand: null,  // user must supply (e.g. "telnet lh")
+    jumpPromptPattern: 'topexsw>\\s*$',
+    jumpExitCommand: 'quit',
+    jumpReadyTimeout: 5000,
+  },
 };
 
 // =============================================================================
@@ -263,6 +283,84 @@ class SSHMCPServer {
     }
 
     return resolved;
+  }
+
+  // ===========================================================================
+  // JUMP SHELL HELPERS
+  // ===========================================================================
+
+  /**
+   * Resolve jump config by merging a preset (if any) with explicit overrides.
+   */
+  resolveJumpShellConfig(args) {
+    const preset = args.preset ? JUMP_SHELL_PRESETS[args.preset.toLowerCase()] : null;
+
+    const jumpCommand       = args.jumpCommand       || (preset && preset.jumpCommand)       || null;
+    const jumpPromptPattern = args.jumpPromptPattern  || (preset && preset.jumpPromptPattern) || null;
+    const jumpExitCommand   = args.jumpExitCommand    || (preset && preset.jumpExitCommand)   || 'exit';
+    const jumpReadyTimeout  = args.jumpReadyTimeout   || (preset && preset.jumpReadyTimeout)  || 5000;
+
+    if (!jumpCommand) {
+      const hint = args.preset
+          ? `Preset "${args.preset}" requires jumpCommand (e.g. "telnet lh").`
+          : 'Provide jumpCommand (e.g. "telnet lh", "fs_cli").';
+      throw new Error(`jumpCommand is required. ${hint}`);
+    }
+    if (!jumpPromptPattern) {
+      throw new Error('jumpPromptPattern is required. Provide a regex matching the nested shell prompt (e.g. "topexsw>\\\\s*$").');
+    }
+
+    return { jumpCommand, jumpPromptPattern, jumpExitCommand, jumpReadyTimeout };
+  }
+
+  /**
+   * Send the jump command into an open SSH shell
+   *   SSH prompt → jumpCommand → nested CLI prompt → ready
+   */
+  async enterJumpShell(connectionInfo, connectionId) {
+    const { jumpCommand, jumpPromptPattern, jumpReadyTimeout } = connectionInfo.jumpConfig;
+    const promptRegex = new RegExp(jumpPromptPattern);
+
+    logger.info(`Entering jump shell: "${jumpCommand}"`, { connectionId, promptPattern: jumpPromptPattern });
+
+    return new Promise((resolve, reject) => {
+      connectionInfo.shellBuffer = '';
+      connectionInfo.shell.write(jumpCommand + '\n');
+
+      const timeoutId = setTimeout(() => {
+        clearInterval(intervalId);
+        reject(new Error(`Jump shell timeout after ${jumpReadyTimeout}ms. `
+            + `Expected prompt matching /${jumpPromptPattern}/ but got: "${connectionInfo.shellBuffer.slice(-200)}"`
+        ));
+      }, jumpReadyTimeout);
+
+      const intervalId = setInterval(() => {
+        if (promptRegex.test(connectionInfo.shellBuffer.slice(-500))) {
+          clearInterval(intervalId);
+          clearTimeout(timeoutId);
+          connectionInfo.jumpShellActive = true;
+          const lastLine = connectionInfo.shellBuffer.trim().split('\n').pop() || '';
+          logger.info(`✓ Jump shell ready: "${jumpCommand}"`, { connectionId, prompt: lastLine.trim() });
+          resolve();
+        }
+      }, 300);
+    });
+  }
+
+  /**
+   * Exit the jump shell gracefully (sends the exit command).
+   */
+  async exitJumpShell(connectionInfo, connectionId) {
+    if (!connectionInfo.jumpShellActive || !connectionInfo.jumpConfig) return;
+    const exitCmd = connectionInfo.jumpConfig.jumpExitCommand;
+    logger.info(`Exiting jump shell with: "${exitCmd}"`, { connectionId });
+    try {
+      connectionInfo.shell.write(exitCmd + '\n');
+      await new Promise(r => setTimeout(r, 500));
+      connectionInfo.jumpShellActive = false;
+    } catch (e) {
+      logger.debug('Jump shell exit error (non-fatal)', { connectionId, error: e.message });
+    }
   }
 
   // ===========================================================================
@@ -476,6 +574,33 @@ class SSHMCPServer {
           },
         },
         {
+          name: 'ssh_connect_with_jump_command',
+          description:
+              'SSH into a host, then execute a jump command to enter a nested interactive shell '
+              + '(e.g. telnet to a Topex gateway, fs_cli for FreeSWITCH). '
+              + 'All subsequent ssh_execute commands on this connectionId run INSIDE the nested shell. '
+              + 'Use "preset" for built-in configs (freeswitch, topex) or supply jumpCommand + jumpPromptPattern manually.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              host: { type: 'string', description: 'SSH server hostname or IP' },
+              hostname: { type: 'string', description: 'Alias for host' },
+              port: { type: 'number', description: 'SSH port', default: 22 },
+              username: { type: 'string', description: 'SSH username' },
+              password: { type: 'string', description: 'SSH password' },
+              privateKey: { type: 'string', description: 'Path to private key file' },
+              passphrase: { type: 'string', description: 'Passphrase for private key' },
+              connectionId: { type: 'string', description: 'Unique connection ID', default: 'default' },
+              preset: { type: 'string', description: 'Built-in preset: freeswitch, topex. Auto-fills jump config where possible.' },
+              jumpCommand: { type: 'string', description: 'Command to enter nested shell (e.g. "telnet lh", "fs_cli").' },
+              jumpPromptPattern: { type: 'string', description: 'Regex matching the nested shell prompt (e.g. "topexsw>\\\\s*$").' },
+              jumpExitCommand: { type: 'string', description: 'Command to exit the nested shell. Default from preset or "exit".' },
+              jumpReadyTimeout: { type: 'number', description: 'Timeout in ms waiting for nested prompt.', default: 5000 },
+            },
+            required: ['host', 'username'],
+          },
+        },
+        {
           name: 'ssh_load_connections',
           description: 'Load multiple connections from a CSV or JSON file. CSV format: host,username,password,port,deviceType,connectionId,enablePassword',
           inputSchema: {
@@ -599,6 +724,7 @@ class SSHMCPServer {
       try {
         switch (name) {
           case 'ssh_connect': return await this.handleSSHConnect(args);
+          case 'ssh_connect_with_jump_command': return await this.handleSSHConnectWithJump(args);
           case 'ssh_load_connections': return await this.handleLoadConnections(args);
           case 'ssh_execute': return await this.handleSSHExecute(args);
           case 'ssh_execute_on_multiple': return await this.handleExecuteOnMultiple(args);
@@ -698,6 +824,8 @@ class SSHMCPServer {
           connectionId,
           deviceType: deviceType.toLowerCase(),
           enablePassword,
+          jumpConfig: null,
+          jumpShellActive: false,
           shell: null,
           shellBuffer: '',
           shellReady: false,
@@ -834,6 +962,7 @@ class SSHMCPServer {
           logger.warn(`══════════════════════════════════════════════════════════`);
           connectionInfo.shell = null;
           connectionInfo.shellReady = false;
+          connectionInfo.jumpShellActive = false;
         });
 
         stream.on('end', () => {
@@ -868,6 +997,179 @@ class SSHMCPServer {
           resolve();
         }, 2000);
       });
+    });
+  }
+
+  // ===========================================================================
+  // SSH CONNECT WITH JUMP COMMAND
+  // ===========================================================================
+  async handleSSHConnectWithJump(args) {
+    const resolved = this.resolveCredentialsFromEnv(args);
+
+    // Validate jump config before connecting
+    const jumpConfig = this.resolveJumpShellConfig(resolved);
+
+    const {
+      host: hostParam,
+      hostname,
+      port = 22,
+      username,
+      password,
+      privateKey,
+      passphrase,
+      connectionId = 'default',
+    } = resolved;
+
+    const host = hostParam || hostname;
+    if (!host) throw new Error('host is required');
+
+    if (this.connections.has(connectionId)) {
+      throw new Error(`Connection '${connectionId}' already exists`);
+    }
+
+    // Resolve private key path BEFORE entering Promise scope
+    const resolvedKeyPath = privateKey ? resolve(privateKey) : null;
+
+    logger.info(`Connecting to ${host}:${port} with jump: "${jumpConfig.jumpCommand}"`, {
+      connectionId, username, preset: resolved.preset || null,
+    });
+
+    return new Promise((resolve, reject) => {
+      const conn = new Client();
+
+      const config = {
+        host: host.includes(':') && !host.startsWith('[') ? `[${host}]` : host,
+        port,
+        username,
+        keepaliveInterval: 10000,
+        keepaliveCountMax: 3,
+        readyTimeout: 30000,
+      };
+
+      if (resolvedKeyPath) {
+        try {
+          config.privateKey = readFileSync(resolvedKeyPath);
+          if (passphrase) config.passphrase = passphrase;
+        } catch (error) {
+          return reject(new Error(`Failed to read private key: ${error.message}`));
+        }
+      } else if (password) {
+        config.password = password;
+      } else {
+        return reject(new Error('Either password or privateKey required. Set <CONNECTIONID>_PASSWORD env var or provide password directly.'));
+      }
+
+      conn.on('ready', async () => {
+        logger.info(`✓ SSH connection established to ${host}:${port}`, { connectionId });
+
+        const connectionInfo = {
+          conn,
+          host,
+          port,
+          username,
+          connectionId,
+          deviceType: 'jump_shell',
+          enablePassword: null,
+          jumpConfig,
+          jumpShellActive: false,
+          shell: null,
+          shellBuffer: '',
+          shellReady: false,
+          keepaliveCount: 0,
+          connectedAt: Date.now(),
+        };
+
+        // Start keepalive logging interval
+        connectionInfo.keepaliveInterval = setInterval(() => {
+          connectionInfo.keepaliveCount++;
+          logger.debug(`♥ Keepalive #${connectionInfo.keepaliveCount} sent to ${host}`, {
+            connectionId,
+            uptime: Math.round((Date.now() - connectionInfo.connectedAt) / 1000) + 's'
+          });
+        }, 10000);
+
+        // Step 1: Open SSH shell
+        try {
+          await this.openShell(connectionInfo, connectionId);
+          logger.info(`✓ Shell opened for ${connectionId}`);
+        } catch (shellError) {
+          logger.error(`✗ Failed to open shell for ${connectionId}`, { error: shellError.message });
+          clearInterval(connectionInfo.keepaliveInterval);
+          conn.end();
+          return reject(new Error(`Failed to open shell: ${shellError.message}`));
+        }
+
+        // Step 2: Enter nested CLI via jump command
+        try {
+          await this.enterJumpShell(connectionInfo, connectionId);
+        } catch (jumpError) {
+          logger.error(`✗ Failed to enter jump shell for ${connectionId}`, { error: jumpError.message });
+          clearInterval(connectionInfo.keepaliveInterval);
+          conn.end();
+          return reject(new Error(`Jump shell failed: ${jumpError.message}`));
+        }
+
+        this.connections.set(connectionId, connectionInfo);
+
+        resolve({
+          content: [{
+            type: 'text',
+            text: `Connected to ${host}:${port} as ${username} (${connectionId}) [jump_shell] → "${jumpConfig.jumpCommand}" ready`,
+          }],
+        });
+      });
+
+      conn.on('error', (error) => {
+        logger.error(`✗ CONNECTION ERROR: ${host}:${port}`, {
+          connectionId,
+          error: error.message,
+          code: error.code,
+          level: error.level
+        });
+        reject(new Error(`SSH connection failed: ${error.message}`));
+      });
+
+      conn.on('close', (hadError) => {
+        const connInfo = this.connections.get(connectionId);
+        if (connInfo?.keepaliveInterval) {
+          clearInterval(connInfo.keepaliveInterval);
+        }
+        const uptime = connInfo?.connectedAt
+            ? Math.round((Date.now() - connInfo.connectedAt) / 1000)
+            : 0;
+
+        logger.warn(`══════════════════════════════════════════════════════════`);
+        logger.warn(`⚠ CONNECTION CLOSED BY REMOTE HOST: ${connectionId}`);
+        logger.warn(`  Host: ${host}:${port}`);
+        logger.warn(`  Had Error: ${hadError ? 'YES' : 'NO'}`);
+        logger.warn(`  Session Duration: ${uptime} seconds`);
+        logger.warn(`  Keepalives Sent: ${connInfo?.keepaliveCount || 0}`);
+        logger.warn(`══════════════════════════════════════════════════════════`);
+        this.connections.delete(connectionId);
+      });
+
+      conn.on('end', () => {
+        logger.warn(`⚠ Connection stream ended by remote host: ${connectionId}`, { host, port });
+      });
+
+      conn.on('timeout', () => {
+        logger.error(`✗ Connection timeout - remote host not responding: ${connectionId}`, { host, port });
+        conn.end();
+      });
+
+      conn.on('keyboard-interactive', (name, instructions, instructionsLang, prompts, finish) => {
+        logger.debug('Keyboard-interactive auth', { connectionId, prompts: prompts.length });
+        const responses = prompts.map(prompt => {
+          if (prompt.prompt.toLowerCase().includes('password')) {
+            return password;
+          }
+          return '';
+        });
+        finish(responses);
+      });
+
+      logger.debug(`Initiating connection to ${host}:${port}`);
+      conn.connect(config);
     });
   }
 
@@ -936,12 +1238,17 @@ class SSHMCPServer {
       throw new Error(`Connection ${connectionId} was closed by remote host. Please reconnect.`);
     }
 
-    if (['cisco', 'mikrotik', 'juniper', 'network'].includes(connection.deviceType)) {
+    if (['cisco', 'mikrotik', 'juniper', 'network', 'jump_shell'].includes(connection.deviceType)) {
       if (!connection.shell || !connection.shellReady) {
         logger.warn(`⚠ Shell not ready for ${connectionId}, attempting to reopen`, { host: connection.host });
         try {
           await this.openShell(connection, connectionId);
           logger.info(`✓ Shell reopened for ${connectionId}`);
+          // Re-enter jump shell if this was a jump_shell connection
+          if (connection.jumpConfig) {
+            await this.enterJumpShell(connection, connectionId);
+            logger.info(`✓ Jump shell re-entered for ${connectionId}`);
+          }
         } catch (shellError) {
           throw new Error(`Shell closed by remote host and failed to reopen: ${shellError.message}`);
         }
@@ -1206,6 +1513,11 @@ class SSHMCPServer {
 
     logger.info(`Disconnecting: ${connectionId}`, { host: connection.host });
 
+    // Exit jump shell gracefully before closing
+    if (connection.jumpShellActive) {
+      await this.exitJumpShell(connection, connectionId);
+    }
+
     if (connection.keepaliveInterval) {
       clearInterval(connection.keepaliveInterval);
     }
@@ -1229,6 +1541,9 @@ class SSHMCPServer {
     for (const connectionId of connectionIds) {
       try {
         const connection = this.connections.get(connectionId);
+        if (connection.jumpShellActive) {
+          await this.exitJumpShell(connection, connectionId);
+        }
         if (connection.keepaliveInterval) {
           clearInterval(connection.keepaliveInterval);
         }
@@ -1253,6 +1568,7 @@ class SSHMCPServer {
       username: info.username,
       deviceType: info.deviceType,
       shellActive: !!info.shell,
+      jumpShell: info.jumpShellActive ? info.jumpConfig?.jumpCommand : null,
     }));
 
     logger.debug(`Listing connections`, { count: list.length });
@@ -1261,9 +1577,12 @@ class SSHMCPServer {
       content: [{
         type: 'text',
         text: list.length > 0
-            ? `Active connections (${list.length}):\n${list.map(c =>
-                `  • ${c.id}: ${c.username}@${c.host}:${c.port} [${c.deviceType}]${c.shellActive ? ' (shell)' : ''}`
-            ).join('\n')}`
+            ? `Active connections (${list.length}):\n${list.map(c => {
+              let line = `  • ${c.id}: ${c.username}@${c.host}:${c.port} [${c.deviceType}]`;
+              if (c.shellActive) line += ' (shell)';
+              if (c.jumpShell) line += ` → ${c.jumpShell}`;
+              return line;
+            }).join('\n')}`
             : 'No active connections',
       }],
     };
@@ -1295,9 +1614,12 @@ class SSHMCPServer {
         deadConnections.push(connectionId);
       } else {
         status.status = 'ALIVE';
-        if (['cisco', 'mikrotik', 'juniper', 'network'].includes(connection.deviceType)) {
+        if (['cisco', 'mikrotik', 'juniper', 'network', 'jump_shell'].includes(connection.deviceType)) {
           if (connection.shell && connection.shellReady) {
             status.shellStatus = 'ACTIVE';
+            if (connection.jumpShellActive) {
+              status.jumpShell = connection.jumpConfig?.jumpCommand;
+            }
           } else {
             status.shellStatus = 'CLOSED';
             status.reason = 'Shell was closed by remote host';
@@ -1327,6 +1649,9 @@ class SSHMCPServer {
       output += `${icon} [${r.status}] ${r.id}: ${r.host}:${r.port} [${r.deviceType}]\n`;
       if (r.shellStatus) {
         output += `    Shell: ${r.shellStatus}\n`;
+      }
+      if (r.jumpShell) {
+        output += `    Jump: ${r.jumpShell}\n`;
       }
       if (r.reason) {
         output += `    Reason: ${r.reason}\n`;
