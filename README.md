@@ -11,6 +11,7 @@ A **secured** fork of [zibdie/SSH-MCP-Server](https://github.com/zibdie/SSH-MCP-
 * **Command Whitelist/Blacklist**: Control which commands can be executed
 * **Dangerous Pattern Detection**: Blocks fork bombs, command injection, and destructive patterns
 * **Network Device Support**: Cisco, Juniper, MikroTik with persistent shell sessions and enable mode
+* **Jump Shell Support**: SSH into a host then enter a nested CLI (telnet to a host, FreeSWITCH fs_cli, etc.) — commands execute inside the nested shell
 * **Bulk Connection Management**: Load dozens of connections from CSV/JSON files
 * **Environment Variable Credentials**: Passwords auto-resolved from env vars by connectionId — no secrets in chat
 * **Multi-Connection Execution**: Run commands across all or selected connections simultaneously
@@ -152,6 +153,7 @@ The server supports different device types with appropriate connection handling:
 | `juniper` | Persistent shell | Juniper JunOS devices |
 | `mikrotik` | Persistent shell | MikroTik RouterOS |
 | `network` | Generic persistent shell | Other network devices |
+| `jump_shell` | Persistent shell + nested CLI | Used internally by `ssh_connect_with_jump_command` |
 
 Network devices use PTY-allocated persistent shell sessions instead of standard `exec()` because many network operating systems close the SSH channel after each exec command.
 
@@ -187,7 +189,93 @@ Or run on ALL connections:
 }
 ```
 
-### 6. Logging
+### 6. Jump Shell (Nested CLI via SSH)
+
+Use `ssh_connect_with_jump_command` when you need to SSH into a host and then enter a nested interactive shell before executing commands. This covers scenarios like:
+
+* **Telnet to a Topex VoIP gateway** from an SSH jump host
+* **FreeSWITCH `fs_cli`** on a remote server
+* Any CLI that requires an interactive session after SSH
+
+**How it works:**
+
+```
+SSH → open shell → send jump command (e.g. "telnet lh") → wait for nested prompt (e.g. "topexsw>") → ready
+```
+
+All subsequent `ssh_execute` commands on that connectionId run inside the nested shell.
+
+**Topex gateway example (with preset):**
+
+```json
+{
+  "host": "10.0.0.1",
+  "username": "admin",
+  "connectionId": "topex1",
+  "preset": "topex",
+  "jumpCommand": "telnet lh"
+}
+```
+
+The `topex` preset auto-fills `jumpPromptPattern: "topexsw>\\s*$"` and `jumpExitCommand: "quit"`. You only need to supply `jumpCommand`.
+
+Then execute commands inside the Topex CLI:
+
+```json
+{
+  "command": "view portsoncard *",
+  "connectionId": "topex1"
+}
+```
+
+**FreeSWITCH example (preset fills everything):**
+
+```json
+{
+  "host": "10.0.0.5",
+  "username": "root",
+  "connectionId": "fs1",
+  "preset": "freeswitch"
+}
+```
+
+The `freeswitch` preset auto-fills `jumpCommand: "fs_cli"`, `jumpPromptPattern: "freeswitch@...>"`, and `jumpExitCommand: "/exit"`. Then:
+
+```json
+{
+  "command": "sofia status",
+  "connectionId": "fs1"
+}
+```
+
+**Fully custom (no preset):**
+
+```json
+{
+  "host": "10.0.0.1",
+  "username": "admin",
+  "connectionId": "custom1",
+  "jumpCommand": "telnet 192.168.1.100",
+  "jumpPromptPattern": ">\\s*$",
+  "jumpExitCommand": "quit",
+  "jumpReadyTimeout": 8000
+}
+```
+
+**Built-in presets:**
+
+| Preset | jumpCommand | Prompt pattern | Exit command |
+|--------|-------------|----------------|--------------|
+| `freeswitch` | `fs_cli` | `freeswitch@...>` | `/exit` |
+| `topex` | *(user provides)* | `topexsw>` | `quit` |
+
+Presets can be overridden — any explicitly provided parameter takes precedence.
+
+**Shell recovery:** If the shell drops, `ssh_execute` automatically reopens the shell and re-enters the jump shell.
+
+**Disconnect:** `ssh_disconnect` gracefully sends the exit command to the nested CLI before closing the SSH connection.
+
+### 7. Logging
 
 Set log level via environment variable:
 
@@ -378,6 +466,7 @@ These patterns are **always blocked** regardless of filter mode:
 | Tool | Description |
 |------|-------------|
 | `ssh_connect` | Connect to a single host (password auto-resolved from `<CONNECTIONID>_PASSWORD` env var) |
+| `ssh_connect_with_jump_command` | SSH into a host, then enter a nested CLI (telnet, fs_cli, etc.) via a jump command. Supports presets. |
 | `ssh_load_connections` | Load connections from CSV/JSON file (credentials resolved from env vars per connectionId) |
 | `ssh_execute` | Execute a command on one connection |
 | `ssh_cisco_enable` | Enter Cisco privileged EXEC mode (interactive enable password handling) |
@@ -416,7 +505,22 @@ These patterns are **always blocked** regardless of filter mode:
 5. Check connection health
    → ssh_check_connections {}
 
-6. Disconnect all
+6. Connect to a Topex gateway via jump shell
+   → ssh_connect_with_jump_command {
+       host: "10.0.0.1",
+       username: "admin",
+       connectionId: "topex1",
+       preset: "topex",
+       jumpCommand: "telnet lh"
+     }
+
+7. Execute command inside the Topex CLI
+   → ssh_execute {
+       command: "view portsoncard *",
+       connectionId: "topex1"
+     }
+
+8. Disconnect all
    → ssh_disconnect_all {}
 ```
 
@@ -430,6 +534,9 @@ SSH2 sends keepalives every 10 seconds (`keepaliveInterval: 10000`). After 3 fai
 
 ### Connection Health Monitoring
 The server detects dead connections (socket destroyed), tracks shell status for network devices, auto-cleans dead connections, and attempts shell reopen on network devices if the shell has closed.
+
+### Jump Shell
+When `ssh_connect_with_jump_command` is called, the server: (1) opens an SSH connection, (2) opens a PTY shell, (3) sends the jump command (e.g. `telnet lh`), (4) polls the shell buffer every 300ms for the expected prompt regex, (5) marks the connection as `jump_shell` with `jumpShellActive: true`. On disconnect, the nested CLI exit command is sent before closing the SSH session. On shell recovery, the jump command is automatically re-sent.
 
 ### Environment Variable Credential Resolution
 When a connection is created (via `ssh_connect` or `ssh_load_connections`), if the password is not provided, the server automatically looks up `<PREFIX>_PASSWORD` from environment variables, where `<PREFIX>` is the connectionId uppercased with non-alphanumeric characters replaced by `_`. The same convention applies to `_ENABLE_PASSWORD` and `_USERNAME`. Explicitly provided values always take precedence.
@@ -448,6 +555,7 @@ When a connection is created (via `ssh_connect` or `ssh_load_connections`), if t
 | Config file support | ✗ | ✓ |
 | Network device types (Cisco, Juniper, MikroTik) | ✗ | ✓ |
 | Cisco enable mode | ✗ | ✓ |
+| Jump shell (nested CLI via SSH) | ✗ | ✓ |
 | Bulk connections from CSV/JSON | ✗ | ✓ |
 | Multi-connection execution | ✗ | ✓ |
 | Environment variable credentials | ✗ | ✓ |

@@ -1,6 +1,6 @@
 {
   "name": "@marian-craciunescu/ssh-mcp-server-secured",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Secured SSH MCP server with command whitelist/blacklist filtering for safe remote server management",
   "main": "index.js",
   "type": "module",
