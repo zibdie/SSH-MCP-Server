@@ -1807,10 +1807,8 @@ class SSHMCPServer {
     const app = express();
     app.use(cors());
 
-    // Map to track SSE transports by session
     const transports = new Map();
 
-    // SSE endpoint — client connects here first (GET)
     app.get('/sse', async (req, res) => {
       logger.info('New SSE client connected');
       const transport = new SSEServerTransport('/message', res);
@@ -1824,8 +1822,8 @@ class SSHMCPServer {
       await this.server.connect(transport);
     });
 
-    // Message endpoint — client sends JSON-RPC here (POST)
-    app.post('/message', express.json(), async (req, res) => {
+    // No express.json() here — the SDK reads the raw body
+    app.post('/message', async (req, res) => {
       const sessionId = req.query.sessionId;
       const transport = transports.get(sessionId);
       if (!transport) {
