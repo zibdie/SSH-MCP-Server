@@ -1,6 +1,6 @@
 {
   "name": "@marian-craciunescu/ssh-mcp-server-secured",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Secured SSH MCP server with command whitelist/blacklist filtering for safe remote server management",
   "main": "index.js",
   "type": "module",
@@ -10,6 +10,7 @@
   },
   "scripts": {
     "start": "node index.js",
+    "start-sse": "node index.js --sse",
     "dev": "node --watch index.js",
     "test": "node --test 'test/**/*.test.js'",
     "lint": "echo \"No linting configured\" && exit 0",
