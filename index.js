@@ -1810,6 +1810,10 @@ class SSHMCPServer {
         const app = express();
         app.use(cors());
 
+        // -----------------------------------------------------------------------
+        // Streamable HTTP transport — /mcp (modern, recommended)
+        // -----------------------------------------------------------------------
+        const jsonParser = express.json();
         let activeStreamableTransport = null;
 
         app.post('/mcp', jsonParser, async (req, res) => {
