@@ -293,6 +293,67 @@ class SSHMCPServer {
     }
 
     // ===========================================================================
+    // SSH ALGORITHMS / OPTIONS HELPER
+    // ===========================================================================
+
+    /**
+     * Convert sshOptions (SSH -o style) to ssh2 algorithms config.
+     *
+     * Accepts an object like:
+     *   { "KexAlgorithms": "+diffie-hellman-group-exchange-sha1,diffie-hellman-group1-sha1",
+     *     "HostKeyAlgorithms": "+ssh-rsa,ssh-dss",
+     *     "Ciphers": "+aes128-cbc",
+     *     "MACs": "+hmac-sha1" }
+     *
+     * The "+" prefix means append to ssh2 defaults. Without "+", replaces entirely.
+     * Returns an ssh2 algorithms object, or null if no options provided.
+     */
+    _buildAlgorithmsConfig(sshOptions) {
+        if (!sshOptions || Object.keys(sshOptions).length === 0) return null;
+
+        // Mapping from SSH -o option names to ssh2 algorithms keys
+        const optionMap = {
+            'KexAlgorithms': 'kex',
+            'kexalgorithms': 'kex',
+            'HostKeyAlgorithms': 'serverHostKey',
+            'hostkeyalgorithms': 'serverHostKey',
+            'Ciphers': 'cipher',
+            'ciphers': 'cipher',
+            'MACs': 'hmac',
+            'macs': 'hmac',
+        };
+
+        const algorithms = {};
+
+        for (const [optName, optValue] of Object.entries(sshOptions)) {
+            const algoKey = optionMap[optName] || optionMap[optName.toLowerCase()];
+            if (!algoKey) {
+                logger.debug(`Unknown sshOption ignored: ${optName}`);
+                continue;
+            }
+
+            const valueStr = String(optValue);
+            const append = valueStr.startsWith('+');
+            const algos = (append ? valueStr.slice(1) : valueStr)
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean);
+
+            if (append) {
+                // Append to ssh2 defaults — ssh2 will merge
+                // Use spread: default algos first, then custom ones appended
+                algorithms[algoKey] = [...algos];
+                logger.info(`SSH algorithms: appending ${algoKey}`, { algos });
+            } else {
+                algorithms[algoKey] = algos;
+                logger.info(`SSH algorithms: overriding ${algoKey}`, { algos });
+            }
+        }
+
+        return Object.keys(algorithms).length > 0 ? algorithms : null;
+    }
+
+    // ===========================================================================
     // JUMP SHELL HELPERS
     // ===========================================================================
 
@@ -393,6 +454,7 @@ class SSHMCPServer {
                         deviceType: item.deviceType || item.device_type || item.type || 'linux',
                         connectionId: item.connectionId || item.connection_id || item.id || item.host,
                         enablePassword: item.enablePassword || item.enable_password || item.enable,
+                        sshOptions: item.sshOptions || item.ssh_options || null,
                     });
                 }
                 logger.info(`Parsed JSON file: ${connections.length} connections`);
@@ -576,6 +638,13 @@ class SSHMCPServer {
                             connectionId: { type: 'string', description: 'Unique connection ID', default: 'default' },
                             deviceType: { type: 'string', description: 'Device type: linux, cisco, mikrotik, juniper', default: 'linux' },
                             enablePassword: { type: 'string', description: 'Enable password for Cisco devices' },
+                            sshOptions: {
+                                type: 'object',
+                                description: 'SSH -o style options for algorithm negotiation with legacy devices. '
+                                    + 'Keys: KexAlgorithms, HostKeyAlgorithms, Ciphers, MACs. '
+                                    + 'Prefix value with "+" to append to defaults. '
+                                    + 'Example: { "KexAlgorithms": "+diffie-hellman-group-exchange-sha1", "HostKeyAlgorithms": "+ssh-rsa" }',
+                            },
                         },
                         required: ['username'],
                     },
@@ -603,6 +672,11 @@ class SSHMCPServer {
                             jumpPromptPattern: { type: 'string', description: 'Regex matching the nested shell prompt (e.g. "topexsw>\\\\s*$").' },
                             jumpExitCommand: { type: 'string', description: 'Command to exit the nested shell. Default from preset or "exit".' },
                             jumpReadyTimeout: { type: 'number', description: 'Timeout in ms waiting for nested prompt.', default: 5000 },
+                            sshOptions: {
+                                type: 'object',
+                                description: 'SSH -o style options for algorithm negotiation. '
+                                    + 'Example: { "KexAlgorithms": "+diffie-hellman-group-exchange-sha1", "HostKeyAlgorithms": "+ssh-rsa" }',
+                            },
                         },
                         required: ['host', 'username'],
                     },
@@ -771,6 +845,7 @@ class SSHMCPServer {
             connectionId = 'default',
             deviceType = 'linux',
             enablePassword,
+            sshOptions,
         } = resolved;
 
         const host = hostParam || hostname;
@@ -785,6 +860,7 @@ class SSHMCPServer {
         // Resolve private key path BEFORE entering Promise scope
         // (Promise's resolve/reject params would shadow path.resolve inside)
         const resolvedKeyPath = privateKey ? resolve(privateKey) : null;
+        const algorithms = this._buildAlgorithmsConfig(sshOptions);
 
         return new Promise((resolve, reject) => {
             const conn = new Client();
@@ -797,6 +873,11 @@ class SSHMCPServer {
                 keepaliveCountMax: 3,     // Disconnect after 3 failed keepalives
                 readyTimeout: 30000,
             };
+
+            if (algorithms) {
+                config.algorithms = algorithms;
+                logger.info(`SSH algorithms configured`, { connectionId, algorithms });
+            }
 
             logger.debug(`Connection config`, {
                 connectionId,
@@ -1025,6 +1106,7 @@ class SSHMCPServer {
             privateKey,
             passphrase,
             connectionId = 'default',
+            sshOptions,
         } = resolved;
 
         const host = hostParam || hostname;
@@ -1036,6 +1118,7 @@ class SSHMCPServer {
 
         // Resolve private key path BEFORE entering Promise scope
         const resolvedKeyPath = privateKey ? resolve(privateKey) : null;
+        const algorithms = this._buildAlgorithmsConfig(sshOptions);
 
         logger.info(`Connecting to ${host}:${port} with jump: "${jumpConfig.jumpCommand}"`, {
             connectionId, username, preset: resolved.preset || null,
@@ -1052,6 +1135,11 @@ class SSHMCPServer {
                 keepaliveCountMax: 3,
                 readyTimeout: 30000,
             };
+
+            if (algorithms) {
+                config.algorithms = algorithms;
+                logger.info(`SSH algorithms configured`, { connectionId, algorithms });
+            }
 
             if (resolvedKeyPath) {
                 try {
@@ -1814,11 +1902,18 @@ class SSHMCPServer {
         // Streamable HTTP transport — /mcp (modern, recommended)
         // -----------------------------------------------------------------------
         const jsonParser = express.json();
+        const streamableTransports = new Map();
         let activeStreamableTransport = null;
 
         app.post('/mcp', jsonParser, async (req, res) => {
-            if (isInitializeRequest(req.body)) {
-                // Close previous transport on re-init
+            const sessionId = req.headers['mcp-session-id'];
+            let transport;
+
+            if (sessionId && streamableTransports.has(sessionId)) {
+                // Known session — route to it
+                transport = streamableTransports.get(sessionId);
+            } else if (!sessionId && isInitializeRequest(req.body)) {
+                // New init — close previous if needed
                 if (activeStreamableTransport) {
                     logger.info('Closing previous Streamable HTTP session for reconnect');
                     try {
@@ -1831,12 +1926,15 @@ class SSHMCPServer {
                 }
 
                 logger.info('New Streamable HTTP session');
-                const transport = new StreamableHTTPServerTransport({
+                transport = new StreamableHTTPServerTransport({
                     sessionIdGenerator: () => randomUUID(),
                 });
 
                 transport.onclose = () => {
                     logger.info('Streamable HTTP session closed');
+                    if (transport.sessionId) {
+                        streamableTransports.delete(transport.sessionId);
+                    }
                     if (activeStreamableTransport === transport) {
                         activeStreamableTransport = null;
                     }
@@ -1844,30 +1942,47 @@ class SSHMCPServer {
 
                 await this.server.connect(transport);
                 activeStreamableTransport = transport;
-                await transport.handleRequest(req, res, req.body);
             } else if (activeStreamableTransport) {
-                await activeStreamableTransport.handleRequest(req, res, req.body);
+                // Fallback — use active transport (client may not send session header)
+                transport = activeStreamableTransport;
             } else {
                 res.status(400).json({
                     jsonrpc: '2.0',
                     error: { code: -32600, message: 'Bad Request: No active session. Send an initialize request first.' },
                     id: null,
                 });
+                return;
+            }
+
+            await transport.handleRequest(req, res, req.body);
+
+            // After init, sessionId is now set — store in Map for future lookups
+            if (transport.sessionId && !streamableTransports.has(transport.sessionId)) {
+                streamableTransports.set(transport.sessionId, transport);
             }
         });
 
         app.get('/mcp', async (req, res) => {
-            if (activeStreamableTransport) {
-                await activeStreamableTransport.handleRequest(req, res);
+            const sessionId = req.headers['mcp-session-id'];
+            const transport = (sessionId && streamableTransports.get(sessionId)) || activeStreamableTransport;
+            if (transport) {
+                await transport.handleRequest(req, res);
             } else {
                 res.status(405).end();
             }
         });
 
         app.delete('/mcp', async (req, res) => {
-            if (activeStreamableTransport) {
-                await activeStreamableTransport.handleRequest(req, res);
-                activeStreamableTransport = null;
+            const sessionId = req.headers['mcp-session-id'];
+            const transport = (sessionId && streamableTransports.get(sessionId)) || activeStreamableTransport;
+            if (transport) {
+                await transport.handleRequest(req, res);
+                if (transport.sessionId) {
+                    streamableTransports.delete(transport.sessionId);
+                }
+                if (activeStreamableTransport === transport) {
+                    activeStreamableTransport = null;
+                }
             } else {
                 res.status(405).end();
             }

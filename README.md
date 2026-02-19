@@ -100,6 +100,34 @@ Set credentials in your MCP configuration:
 
 Credentials live in the MCP config (or are injected via CI/CD, vault, etc.) and **never appear in chat or tool calls**. If a password is explicitly provided in the tool call, it takes precedence over the env var.
 
+
+
+#### SSH Options for Legacy Devices
+
+When connecting to older devices that require non-default algorithms (the equivalent of `ssh -o`), use the `sshOptions` parameter:
+
+In natural language: 
+>`Connect to 10.0.0.1 port 2222 as user, connectionId old-switch, with KexAlgorithms +diffie-hellman-group-exchange-sha1 and HostKeyAlgorithms +ssh-rsa`
+
+```json
+{
+  "host": "10.0.0.1",
+  "port": 2222,
+  "username": "admin",
+  "connectionId": "old-switch",
+  "sshOptions": {
+    "KexAlgorithms": "+diffie-hellman-group-exchange-sha1",
+    "HostKeyAlgorithms": "+ssh-rsa"
+  }
+}
+```
+
+This is equivalent to:
+
+```bash
+ssh -p 2222 admin@10.0.0.1 -o KexAlgorithms=+diffie-hellman-group-exchange-sha1 -o HostKeyAlgorithms=+ssh-rsa
+```
+Prefix a value with `+` to append to ssh2 defaults. Without `+`, the value replaces the defaults entirely.
 ### 2. Bulk Connections from File
 
 Load multiple connections from a CSV or JSON file using `ssh_load_connections`. Passwords are resolved from env vars using the same connectionId convention:
@@ -115,6 +143,9 @@ host,username,port,deviceType,connectionId
 
 No passwords in the file. The server resolves `ROUTER1_PASSWORD`, `ROUTER2_PASSWORD`, `SERVER1_PASSWORD` from env vars.
 
+>**NOTE**: CSV can't carry objects so SSH options for legacy devices must be set via individual env vars or in JSON file.
+
+
 **JSON format** (`connections.json`):
 
 ```json
@@ -129,7 +160,11 @@ No passwords in the file. The server resolves `ROUTER1_PASSWORD`, `ROUTER2_PASSW
     "host": "10.1.2.15",
     "username": "noc",
     "deviceType": "cisco",
-    "connectionId": "router2"
+    "connectionId": "router2",
+    "sshOptions": {
+      "KexAlgorithms": "+diffie-hellman-group-exchange-sha1",
+      "HostKeyAlgorithms": "+ssh-rsa"
+    }
   }
 ]
 ```
@@ -465,7 +500,7 @@ These patterns are **always blocked** regardless of filter mode:
 
 | Tool | Description |
 |------|-------------|
-| `ssh_connect` | Connect to a single host (password auto-resolved from `<CONNECTIONID>_PASSWORD` env var) |
+| `ssh_connect` | Connect to a single host (password auto-resolved from `<CONNECTIONID>_PASSWORD` env var) , supports `sshOptions` for legacy algorithm negotiation) |
 | `ssh_connect_with_jump_command` | SSH into a host, then enter a nested CLI (telnet, fs_cli, etc.) via a jump command. Supports presets. |
 | `ssh_load_connections` | Load connections from CSV/JSON file (credentials resolved from env vars per connectionId) |
 | `ssh_execute` | Execute a command on one connection |
