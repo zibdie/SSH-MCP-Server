@@ -872,6 +872,14 @@ class SSHMCPServer {
                 keepaliveInterval: 10000, // Send keepalive every 10 seconds
                 keepaliveCountMax: 3,     // Disconnect after 3 failed keepalives
                 readyTimeout: 30000,
+                tryKeyboard: true,
+                debug: (msg) => {
+                    if (/auth|keyboard|userauth|password/i.test(msg)) {
+                        logger.info(`[ssh2:auth] ${msg}`, { connectionId });
+                    } else {
+                        logger.debug(`[ssh2] ${msg}`, { connectionId });
+                    }
+                },
             };
 
             if (algorithms) {
@@ -1005,7 +1013,9 @@ class SSHMCPServer {
             });
 
             conn.on('keyboard-interactive', (name, instructions, instructionsLang, prompts, finish) => {
-                logger.debug('Keyboard-interactive auth', { connectionId, prompts: prompts.length });
+                logger.info('Keyboard-interactive auth requested', {
+                    connectionId, name, prompts: prompts.map(p => p.prompt),
+                });
                 const responses = prompts.map(prompt => {
                     if (prompt.prompt.toLowerCase().includes('password')) {
                         return password;
@@ -1134,6 +1144,14 @@ class SSHMCPServer {
                 keepaliveInterval: 10000,
                 keepaliveCountMax: 3,
                 readyTimeout: 30000,
+                tryKeyboard: true,
+                debug: (msg) => {
+                    if (/auth|keyboard|userauth|password/i.test(msg)) {
+                        logger.info(`[ssh2:auth] ${msg}`, { connectionId });
+                    } else {
+                        logger.debug(`[ssh2] ${msg}`, { connectionId });
+                    }
+                },
             };
 
             if (algorithms) {
@@ -1253,7 +1271,9 @@ class SSHMCPServer {
             });
 
             conn.on('keyboard-interactive', (name, instructions, instructionsLang, prompts, finish) => {
-                logger.debug('Keyboard-interactive auth', { connectionId, prompts: prompts.length });
+                logger.info('Keyboard-interactive auth requested', {
+                    connectionId, name, prompts: prompts.map(p => p.prompt),
+                });
                 const responses = prompts.map(prompt => {
                     if (prompt.prompt.toLowerCase().includes('password')) {
                         return password;

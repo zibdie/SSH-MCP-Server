@@ -127,7 +127,21 @@ This is equivalent to:
 ```bash
 ssh -p 2222 admin@10.0.0.1 -o KexAlgorithms=+diffie-hellman-group-exchange-sha1 -o HostKeyAlgorithms=+ssh-rsa
 ```
-Prefix a value with `+` to append to ssh2 defaults. Without `+`, the value replaces the defaults entirely.
+**_Prefix a value with `+` to append to ssh2 defaults. Without `+`, the value replaces the defaults entirely._**
+
+
+
+| Option | SSH2 equivalent | Use case |
+|--------|-----------------|----------|
+| `KexAlgorithms` | `algorithms.kex` | Legacy key exchange (e.g. `diffie-hellman-group1-sha1`) |
+| `HostKeyAlgorithms` | `algorithms.serverHostKey` | Legacy host keys (e.g. `ssh-rsa`, `ssh-dss`) |
+| `Ciphers` | `algorithms.cipher` | Legacy ciphers (e.g. `aes128-cbc`) |
+| `MACs` | `algorithms.hmac` | Legacy MACs (e.g. `hmac-sha1`) |
+
+`sshOptions` is supported on `ssh_connect`, `ssh_connect_with_jump_command`, and JSON files loaded via `ssh_load_connections`.
+
+**Keyboard-interactive auth** is enabled automatically (`tryKeyboard: true`). Legacy devices that reject standard password auth and require `keyboard-interactive` will work without any extra configuration.
+
 ### 2. Bulk Connections from File
 
 Load multiple connections from a CSV or JSON file using `ssh_load_connections`. Passwords are resolved from env vars using the same connectionId convention:
