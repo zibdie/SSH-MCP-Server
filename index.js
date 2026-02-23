@@ -342,7 +342,7 @@ class SSHMCPServer {
             if (append) {
                 // Append to ssh2 defaults — ssh2 will merge
                 // Use spread: default algos first, then custom ones appended
-                algorithms[algoKey] = [...algos];
+                algorithms[algoKey] = { append: algos };
                 logger.info(`SSH algorithms: appending ${algoKey}`, { algos });
             } else {
                 algorithms[algoKey] = algos;
@@ -455,6 +455,11 @@ class SSHMCPServer {
                         connectionId: item.connectionId || item.connection_id || item.id || item.host,
                         enablePassword: item.enablePassword || item.enable_password || item.enable,
                         sshOptions: item.sshOptions || item.ssh_options || null,
+                        preset: item.preset || null,
+                        jumpCommand: item.jumpCommand || item.jump_command || null,
+                        jumpPromptPattern: item.jumpPromptPattern || item.jump_prompt_pattern || null,
+                        jumpExitCommand: item.jumpExitCommand || item.jump_exit_command || null,
+                        jumpReadyTimeout: item.jumpReadyTimeout || item.jump_ready_timeout || null,
                     });
                 }
                 logger.info(`Parsed JSON file: ${connections.length} connections`);
@@ -1306,7 +1311,11 @@ class SSHMCPServer {
                 const connConfig = this.resolveCredentialsFromEnv(rawEntry);
                 try {
                     logger.info(`Connecting to ${connConfig.host}`, { connectionId: connConfig.connectionId });
-                    await this.handleSSHConnect(connConfig);
+                    if (connConfig.preset || connConfig.jumpCommand) {
+                        await this.handleSSHConnectWithJump(connConfig);
+                    } else {
+                        await this.handleSSHConnect(connConfig);
+                    }
                     results.push({ host: connConfig.host, connectionId: connConfig.connectionId, status: 'connected' });
                 } catch (error) {
                     logger.error(`Failed to connect to ${connConfig.host}`, { error: error.message });
