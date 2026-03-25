@@ -854,5 +854,40 @@ class SSHMCPServer {
   }
 }
 
-const server = new SSHMCPServer();
-server.run().catch(console.error);
+// Handle --install flag: auto-configure Claude CLI with the correct platform-specific command
+if (process.argv.includes('--install')) {
+  import('child_process').then(({ execFileSync }) => {
+    const isWindows = process.platform === 'win32';
+    const pkg = '@zibdie/ssh-mcp-server@latest';
+    const shellOpt = isWindows ? true : false;
+
+    // Remove existing config first (ignore errors if it doesn't exist)
+    try {
+      execFileSync('claude', ['mcp', 'remove', 'ssh-mcp-server'], { stdio: 'pipe', shell: shellOpt });
+      console.log('Removed existing SSH MCP Server configuration.');
+    } catch {
+      // Not previously configured — that's fine
+    }
+
+    // Build the claude mcp add args with correct platform wrapping
+    const args = isWindows
+      ? ['mcp', 'add', 'ssh-mcp-server', '--', 'cmd', '/c', 'npx', pkg]
+      : ['mcp', 'add', 'ssh-mcp-server', '--', 'npx', pkg];
+
+    console.log(`Detected platform: ${process.platform}`);
+    console.log(`Running: claude ${args.join(' ')}`);
+
+    try {
+      execFileSync('claude', args, { stdio: 'inherit', shell: shellOpt });
+      console.log('\nSSH MCP Server has been added to Claude CLI.');
+      console.log('Please restart Claude CLI to use the SSH tools.');
+    } catch (error) {
+      console.error(`\nFailed to add MCP server: ${error.message}`);
+      console.error('You can add it manually. See the README for instructions.');
+      process.exit(1);
+    }
+  });
+} else {
+  const server = new SSHMCPServer();
+  server.run().catch(console.error);
+}

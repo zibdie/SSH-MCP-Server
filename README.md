@@ -21,13 +21,27 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
 
 ### Quick Setup (Recommended)
 
-1. **Add to Claude CLI with one command:**
+1. **Add to Claude CLI with one command (cross-platform):**
 
    ```bash
-   claude mcp add ssh-mcp-server npx '@zibdie/ssh-mcp-server@latest'
+   npx @zibdie/ssh-mcp-server@latest --install
    ```
 
-   **Windows Note:** If you encounter MCP server startup issues on Windows, ensure you're using a supported terminal (Windows Terminal, PowerShell, or Git Bash) and that the Claude CLI has proper stdin support.
+   This auto-detects your OS and registers the MCP server with the correct configuration for your platform.
+
+   **Or manually, if you prefer:**
+
+   **macOS/Linux:**
+   ```bash
+   claude mcp add ssh-mcp-server -- npx '@zibdie/ssh-mcp-server@latest'
+   ```
+
+   **Windows:**
+   ```bash
+   claude mcp add ssh-mcp-server -- cmd /c npx @zibdie/ssh-mcp-server@latest
+   ```
+
+   > **Why the difference?** On Windows, `npx` is a batch file (`npx.cmd`). Claude Code launches MCP servers using Node.js `child_process.spawn()`, which cannot execute `.cmd` files directly. The `cmd /c` wrapper tells Windows to run it through the command interpreter.
 
 2. **Restart Claude CLI**
 
@@ -48,14 +62,26 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
 
 2. **Add to configuration:**
 
-   **macOS/Linux**: Edit `~/.config/claude/claude_desktop_config.json`  
-   **Windows**: Edit `%APPDATA%\Claude\claude_desktop_config.json`
+   **macOS/Linux**: Edit `~/.config/claude/claude_desktop_config.json`
 
    ```json
    {
      "mcpServers": {
        "ssh-mcp-server": {
          "command": "ssh-mcp-server"
+       }
+     }
+   }
+   ```
+
+   **Windows**: Edit `%APPDATA%\Claude\claude_desktop_config.json`
+
+   ```json
+   {
+     "mcpServers": {
+       "ssh-mcp-server": {
+         "command": "cmd",
+         "args": ["/c", "ssh-mcp-server"]
        }
      }
    }
@@ -71,14 +97,26 @@ A cross-platform Model Context Protocol (MCP) server that provides SSH connectiv
 
 2. **Add to configuration:**
 
-   **macOS**: Edit `~/Library/Application Support/Claude/claude_desktop_config.json`  
-   **Windows**: Edit `%APPDATA%\Claude\claude_desktop_config.json`
+   **macOS**: Edit `~/Library/Application Support/Claude/claude_desktop_config.json`
 
    ```json
    {
      "mcpServers": {
        "ssh-mcp-server": {
          "command": "ssh-mcp-server"
+       }
+     }
+   }
+   ```
+
+   **Windows**: Edit `%APPDATA%\Claude\claude_desktop_config.json`
+
+   ```json
+   {
+     "mcpServers": {
+       "ssh-mcp-server": {
+         "command": "cmd",
+         "args": ["/c", "ssh-mcp-server"]
        }
      }
    }
@@ -333,7 +371,29 @@ ssh_download_file with remotePath="/tmp/backup_20241203_143022.sql.gz", localPat
 
 ### Common Issues
 
-1. **"Command not found" after global install**
+1. **MCP server fails to start on Windows**
+
+   On Windows, `npx` and globally-installed npm commands are `.cmd` batch files. Claude Code uses `child_process.spawn()` to launch MCP servers, which cannot execute `.cmd` files directly. You must wrap the command with `cmd /c`:
+
+   ```bash
+   # Quick setup (Windows)
+   claude mcp add ssh-mcp-server -- cmd /c npx @zibdie/ssh-mcp-server@latest
+
+   # Or for global install (Windows)
+   claude mcp add ssh-mcp-server -- cmd /c ssh-mcp-server
+   ```
+
+   If editing the config JSON manually, use:
+   ```json
+   {
+     "command": "cmd",
+     "args": ["/c", "npx", "@zibdie/ssh-mcp-server@latest"]
+   }
+   ```
+
+   You can verify your setup by running `/doctor` in Claude CLI.
+
+2. **"Command not found" after global install**
 
    ```bash
    # Ensure npm global bin is in your PATH
@@ -341,20 +401,20 @@ ssh_download_file with remotePath="/tmp/backup_20241203_143022.sql.gz", localPat
    export PATH="$(npm config get prefix)/bin:$PATH"
    ```
 
-2. **MCP server not appearing in Claude**
+3. **MCP server not appearing in Claude**
 
    - Verify configuration file path and JSON syntax
    - Restart Claude CLI/Desktop after configuration changes
    - Check Claude logs for connection errors
 
-3. **SSH connection failures**
+4. **SSH connection failures**
 
    - Verify network connectivity to target server
    - Ensure SSH service is running on target server
    - Check firewall settings and port accessibility
    - Validate SSH credentials and key permissions
 
-4. **Permission errors**
+5. **Permission errors**
    - Ensure SSH keys have correct permissions (600)
    - Verify user has necessary privileges on target server
 
