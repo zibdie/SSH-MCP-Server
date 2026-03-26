@@ -10,10 +10,11 @@ on:
 
 permissions:
   contents: write
-  packages: write
+  id-token: write # Required for npm trusted publishing (OIDC)
 
 jobs:
   test:
+    if: github.event_name != 'pull_request' || github.actor == 'zibdie'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -71,7 +72,9 @@ jobs:
           npm pack
           TARBALL=$(ls zibdie-ssh-mcp-server-*.tgz)
           npm install -g "./$TARBALL"
-          ssh-mcp-server --help || echo "CLI test complete"
+          # Verify the binary is accessible on PATH
+          which ssh-mcp-server || where ssh-mcp-server
+          echo "✓ CLI binary is installed and accessible"
 
   create-dxt:
     needs: test
@@ -90,7 +93,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate and use existing version
+      - name: Validate version and patch manifest
         run: |
           VERSION=$(node -pe "require('./package.json').version")
           echo "Using version from package.json: $VERSION"
@@ -110,6 +113,8 @@ jobs:
             sed -i.bak "s/\"name\": \"@zibdie\/ssh-mcp-server\",/\"name\": \"@zibdie\/ssh-mcp-server\",\n  \"version\": \"$VERSION\",/" manifest.json
             rm -f manifest.json.bak
           fi
+
+          echo "✓ Version validation passed: $VERSION"
 
       - name: Install DXT CLI
         run: npm install -g @anthropic-ai/dxt
@@ -146,31 +151,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate version consistency before publishing
-        run: |
-          VERSION=$(node -pe "require('./package.json').version")
-          TAG_VERSION=${GITHUB_REF_NAME#v}
-
-          echo "Package.json version: $VERSION"
-          echo "Git tag version: $TAG_VERSION"
-
-          if [ "$VERSION" != "$TAG_VERSION" ]; then
-            echo "ERROR: package.json version ($VERSION) does not match git tag ($TAG_VERSION)"
-            echo "Please update package.json version to match the tag before publishing"
-            exit 1
-          fi
-
-          # Add version to manifest.json if it doesn't exist
-          if ! grep -q '"version"' manifest.json 2>/dev/null; then
-            sed -i.bak "s/\"name\": \"@zibdie\/ssh-mcp-server\",/\"name\": \"@zibdie\/ssh-mcp-server\",\n  \"version\": \"$VERSION\",/" manifest.json
-            rm -f manifest.json.bak
-          fi
-
-          echo "✓ Version validation passed: $VERSION"
-
       - name: Publish to NPM
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish
 
   release:
@@ -195,7 +176,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(node -pe \"require('./package.json').version\")
+          VERSION=$(node -pe "require('./package.json').version")
 
           # Create release notes from template
           sed "s/{{VERSION}}/$VERSION/g" release-notes-template.md > release_notes.md
