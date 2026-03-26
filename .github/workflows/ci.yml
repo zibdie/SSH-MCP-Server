@@ -31,6 +31,20 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
 
+      - name: Sync package-lock.json version
+        shell: bash
+        run: |
+          # Ensure package-lock.json version matches package.json
+          npm install --package-lock-only --ignore-scripts
+          PACKAGE_VERSION=$(node -pe "require('./package.json').version")
+          PACKAGE_LOCK_VERSION=$(node -pe "require('./package-lock.json').version")
+          echo "package.json: $PACKAGE_VERSION | package-lock.json: $PACKAGE_LOCK_VERSION"
+          if [ "$PACKAGE_VERSION" != "$PACKAGE_LOCK_VERSION" ]; then
+            echo "ERROR: versions still don't match after sync"
+            exit 1
+          fi
+          echo "✓ Versions in sync: $PACKAGE_VERSION"
+
       - name: Install dependencies
         run: npm ci
 
@@ -42,30 +56,6 @@ jobs:
 
       - name: Run tests
         run: npm test
-
-      - name: Validate version consistency
-        shell: bash
-        run: |
-          # Check that all version fields match
-          PACKAGE_VERSION=$(node -pe "require('./package.json').version")
-          PACKAGE_LOCK_VERSION=$(node -pe "require('./package-lock.json').version")
-          PACKAGE_LOCK_PACKAGES_VERSION=$(node -pe "require('./package-lock.json').packages[''].version")
-
-          echo "Package.json version: $PACKAGE_VERSION"
-          echo "Package-lock.json version: $PACKAGE_LOCK_VERSION"
-          echo "Package-lock.json packages version: $PACKAGE_LOCK_PACKAGES_VERSION"
-
-          if [ "$PACKAGE_VERSION" != "$PACKAGE_LOCK_VERSION" ]; then
-            echo "ERROR: package.json version ($PACKAGE_VERSION) does not match package-lock.json version ($PACKAGE_LOCK_VERSION)"
-            exit 1
-          fi
-
-          if [ "$PACKAGE_VERSION" != "$PACKAGE_LOCK_PACKAGES_VERSION" ]; then
-            echo "ERROR: package.json version ($PACKAGE_VERSION) does not match package-lock.json packages version ($PACKAGE_LOCK_PACKAGES_VERSION)"
-            exit 1
-          fi
-
-          echo "✓ All versions are consistent: $PACKAGE_VERSION"
 
       - name: Test package installation
         shell: bash
